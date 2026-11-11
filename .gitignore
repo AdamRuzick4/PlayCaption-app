@@ -1,0 +1,22 @@
+# PlayCaption – co NEnahrávat na GitHub
+.gradle/
+.idea/
+build/
+app/build/
+local.properties
+.kotlin/
+
+# záznamy (můžou obsahovat soukromé údaje)
+*.log
+
+# hotové aplikace a podpisové klíče
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# soukromé poznámky, skripty a zálohy
+ZALOHA/
+PROJEKT_POZNAMKY.md
+psn-account-id.ps1
+*.bat
