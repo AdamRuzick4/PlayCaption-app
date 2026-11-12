@@ -86,6 +86,8 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (obrazovka == "hlavni") ukazHlavni()
+        // vrátil se z nastavení a povolení pořád nemá → televize ho asi schovává, ukázat návod
+        if (zkouselPovoleni && !Rezim.jeTelefon(this) && !Settings.canDrawOverlays(this)) ukazNavodPovoleni()
     }
 
     override fun onPause() {
@@ -323,6 +325,8 @@ class MainActivity : Activity() {
             val k = karta()
             k.addView(text(t("povoleniPopis"), 17f, Color.parseColor("#FFC24B")))
             k.addView(tlacitkoCervene(t("povoleni")) { pozadejOPovoleni() }, obal(top = 10))
+            k.addView(tlacitko(t("povoleniNavodBtn"), 17f) { ukazNavodPovoleni() }
+                .apply { setPadding(dp(20), dp(10), dp(20), dp(10)) }, obal(top = 8))
             vlevo.addView(k, odsazeni(bottom = 14))
         }
 
@@ -406,8 +410,12 @@ class MainActivity : Activity() {
             vpravo.addView(sekce(t("hratJak")))
             // okraj kolem dlaždic, ať se zvětšená vybraná dlaždice neořízne
             val volby = vodorovne().apply { clipChildren = false; clipToPadding = false; setPadding(dp(12), dp(10), dp(12), dp(10)) }
-            dlazdiceTv = dlazdice("📺", t("hratTv"), t("hratTvPopis"), CERVENA) { hratTelevizi() }
-            dlazdiceTel = dlazdice("📱➜📺", t("hratTel"), t("hratTelPopis"), Color.parseColor("#2A2C3E")) { hratSTelefonem() }
+            // slabá televize (dřív nestíhala číst nebo jí padalo spojení) → doporučit telefon
+            val slaba = jeSlabaTv()
+            dlazdiceTv = dlazdice("📺", t("hratTv"), if (slaba) t("hratTvSlaba") else t("hratTvPopis"), CERVENA) {
+                if (slaba) varovaniSlabaTv() else hratTelevizi()
+            }
+            dlazdiceTel = dlazdice("📱➜📺", t("hratTel"), if (slaba) t("hratTelDoporuceno") else t("hratTelPopis"), Color.parseColor("#2A2C3E")) { hratSTelefonem() }
             volby.addView(dlazdiceTv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = dp(18) })
             volby.addView(dlazdiceTel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             vpravo.addView(volby)
@@ -420,6 +428,12 @@ class MainActivity : Activity() {
             background = zaobleni(KARTA, 16f)
             setPadding(dp(24), dp(16), dp(24), dp(16))
         }, odsazeni(top = 18))
+        // poděkování open-source projektu Chiaki / chiaki-ng (licence AGPLv3)
+        vpravo.addView(text(t("zasluhy"), 13f, TEXT2).apply {
+            setLineSpacing(0f, 1.25f)
+            alpha = 0.85f
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+        }, odsazeni(top = 10))
 
         val obsah = if (telefon) svisle().apply {
             addView(vlevo, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -436,7 +450,7 @@ class MainActivity : Activity() {
         obnovStav()
         ui.removeCallbacks(obnova)
         ui.postDelayed(obnova, 1000)
-        if (!telefon) (if (prefsBeta.getString("rezimHry", "tv") == "tel") dlazdiceTel else dlazdiceTv)?.requestFocus()
+        if (!telefon) (if (jeSlabaTv() || prefsBeta.getString("rezimHry", "tv") == "tel") dlazdiceTel else dlazdiceTv)?.requestFocus()
     }
 
     // ------------------------------------------------------------------ titulky z telefonu (televize)
@@ -470,6 +484,32 @@ class MainActivity : Activity() {
         addView(text(popis, 15f, Color.parseColor("#DDDDDD")).apply { setLineSpacing(0f, 1.25f) }, odsazeni(top = 4))
     }
 
+    /**
+     * Je televize slabá? Pozná se z dřívějšího hraní (čtení trvalo přes 2 s nebo padalo spojení –
+     * RemotePlayService si to uloží jako "slaba") nebo z toho, že systém sám hlásí málo paměti.
+     */
+    private fun jeSlabaTv(): Boolean {
+        if (getSharedPreferences("uspora", MODE_PRIVATE).getBoolean("slaba", false)) return true
+        return runCatching {
+            val am = getSystemService(android.app.ActivityManager::class.java)
+            val info = android.app.ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+            am.isLowRamDevice || info.totalMem < 1_800L * 1024 * 1024
+        }.getOrDefault(false)
+    }
+
+    /** Slabá televize a přesto "Jen televize" → upozornit a nabídnout telefon. */
+    private fun varovaniSlabaTv() {
+        runCatching {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(t("slabaNadpis"))
+                .setMessage(t("slabaText"))
+                .setPositiveButton(t("slabaTel")) { _, _ -> hratSTelefonem() }
+                .setNegativeButton(t("slabaPresto")) { _, _ -> hratTelevizi() }
+                .show()
+                .getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.requestFocus()
+        }.onFailure { hratTelevizi() }
+    }
+
     /** "Jen televize" = dřívější Hotovo. */
     private fun hratTelevizi() {
         prefsBeta.edit().putString("rezimHry", "tv").apply()
@@ -477,7 +517,7 @@ class MainActivity : Activity() {
             PrijemService.zastav(this)
             RemotePlayService.pozastaveno = false
             AutoStart.nastavZapnuto(this, true)
-            RemotePlayService.spustVse(this, prevzit = true)
+            run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
             Oznameni.ukaz(this, t("hratInfo"))
         } else if (!udaje.sparovano) { ukazPripojeni(); return }
         moveTaskToBack(true)
@@ -490,7 +530,8 @@ class MainActivity : Activity() {
         // televize se od PS5 úplně odpojí (PS5 si vezme telefon)
         RemotePlayService.pozastaveno = true
         AutoStart.nastavZapnuto(this, false)
-        runCatching { startService(Intent(this, RemotePlayService::class.java).setAction(RemotePlayService.ACTION_STOP)) }
+        // zastavit jen když opravdu běží – jinak by se čtečka zbytečně spouštěla (slabou TV to shodí)
+        if (RemotePlayService.aktivni) runCatching { startService(Intent(this, RemotePlayService::class.java).setAction(RemotePlayService.ACTION_STOP)) }
         PrijemService.spust(this)
         ukazPrijem()
     }
@@ -591,7 +632,7 @@ class MainActivity : Activity() {
         } else {
             RemotePlayService.pozastaveno = false
             AutoStart.nastavZapnuto(this, true)
-            if (!RemotePlayService.aktivni) RemotePlayService.spustVse(this, prevzit = true)
+            if (!RemotePlayService.aktivni) run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
         }
         ui.postDelayed({ obnovStav() }, 600)
     }
@@ -671,7 +712,7 @@ class MainActivity : Activity() {
                             parovaniStav.text = if (ok) "✔ ${t("sparovano")}" else "✘ $zprava"
                             if (ok) {
                                 AutoStart.nastavZapnuto(this, true)
-                                if (!telefon && Settings.canDrawOverlays(this)) RemotePlayService.spustVse(this, prevzit = true)
+                                if (!telefon && Settings.canDrawOverlays(this)) run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
                                 ui.postDelayed({ ukazHlavni() }, 1200)
                             }
                         }
@@ -793,11 +834,29 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------------ povolení
 
+    /** Zkusil uživatel otevřít povolení? (po návratu bez povolení → ukázat návod) */
+    private var zkouselPovoleni = false
+
     private fun pozadejOPovoleni() {
+        zkouselPovoleni = true
         try {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: ActivityNotFoundException) {
-            runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+        } catch (e: Throwable) {
+            // televize stránku s povolením nemá (schovaná) → rovnou návod
+            ukazNavodPovoleni()
+        }
+    }
+
+    /** Návod, když televize povolení "Zobrazovat přes jiné aplikace" schovává. */
+    private fun ukazNavodPovoleni() {
+        zkouselPovoleni = false
+        val ip = runCatching { PrihlaseniTelefonem.mojeIp() }.getOrNull() ?: "IP_TELEVIZE"
+        runCatching {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(t("povoleniNavodNadpis"))
+                .setMessage(t("povoleniNavod").replace("%IP%", ip))
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 

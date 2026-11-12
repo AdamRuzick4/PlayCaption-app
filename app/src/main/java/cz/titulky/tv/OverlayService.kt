@@ -37,7 +37,15 @@ class OverlayService : Service() {
         super.onCreate()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startAsForeground()
-        addOverlay()
+        // bez povolení "Zobrazovat přes jiné aplikace" by addView aplikaci shodil (BadTokenException)
+        // → nespadnout, jen titulky neukazovat; aplikace o povolení požádá na hlavní obrazovce
+        if (!android.provider.Settings.canDrawOverlays(this) || runCatching { addOverlay() }.isFailure) {
+            runCatching {
+                java.io.File(filesDir, "titulky.log").appendText(
+                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date()) +
+                        " [CHYBÍ povolení „Zobrazovat přes jiné aplikace“ – titulky nejde ukázat]\n")
+            }
+        }
     }
 
     private fun startAsForeground() {
@@ -232,6 +240,29 @@ class OverlayService : Service() {
     // ---------------------------------------------------------------- volby odpovědí
 
     private var ramecekVoleb: SrafovanyRamecek? = null
+    /** Modrý šrafovaný rámeček ruční oblasti titulků (jen při nastavování v telefonu). */
+    private var ramecekTitulku: SrafovanyRamecek? = null
+    private val schovejRamecekTitulku = Runnable { ramecekTitulku?.visibility = android.view.View.INVISIBLE }
+
+    private fun ukazOblastTitulku(o: FloatArray?, ukazat: Boolean) {
+        ui.removeCallbacks(schovejRamecekTitulku)
+        if (!ukazat || o == null || o.size != 4) { schovejRamecekTitulku.run(); return }
+        val obr = resources.displayMetrics
+        val w = obr.widthPixels.toFloat(); val h = obr.heightPixels.toFloat()
+        val r = ramecekTitulku ?: SrafovanyRamecek(this, "Titulky hry", OblastTitulku.MODRA).also { v ->
+            ramecekTitulku = v
+            runCatching { wm.addView(v, oknoVoleb(true)) }
+        }
+        val lp = (r.layoutParams as? WindowManager.LayoutParams) ?: oknoVoleb(true)
+        lp.x = (o[0] * w).toInt(); lp.y = (o[1] * h).toInt()
+        lp.width = ((o[2] - o[0]) * w).toInt().coerceAtLeast(20)
+        lp.height = ((o[3] - o[1]) * h).toInt().coerceAtLeast(20)
+        runCatching { wm.updateViewLayout(r, lp) }
+        r.visibility = android.view.View.VISIBLE
+        r.invalidate()
+        // pojistka: zmizí sám i bez zprávy z telefonu
+        ui.postDelayed(schovejRamecekTitulku, 8_000)
+    }
     private var seznamVoleb: android.widget.LinearLayout? = null
     private val schovejRamecek = Runnable { ramecekVoleb?.visibility = android.view.View.INVISIBLE }
 
@@ -296,6 +327,7 @@ class OverlayService : Service() {
                     setTextColor(Color.BLACK)
                     background = android.graphics.drawable.GradientDrawable().apply { setColor(ZLUTA); cornerRadius = 6 * d }
                 } else setTextColor(ZLUTA)
+                maxWidth = (w * 0.42f).toInt()
             }, android.widget.LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = if (i == 0) 0 else (4 * d).toInt() })
@@ -305,11 +337,17 @@ class OverlayService : Service() {
         val vlevoMisto = o[0] * w - mezera * 2
         val vpravoMisto = (1 - o[2]) * w - mezera * 2
         val lp = (seznam.layoutParams as? WindowManager.LayoutParams) ?: oknoVoleb(true)
-        val sirka = (maxOf(vlevoMisto, vpravoMisto)).coerceIn(w * 0.22f, w * 0.42f)
-        lp.width = sirka.toInt()
+        // seznam jen tak široký jako nejdelší volba (ne přes půl obrazovky)
+        lp.width = WindowManager.LayoutParams.WRAP_CONTENT
         lp.height = WindowManager.LayoutParams.WRAP_CONTENT
-        lp.x = if (vlevoMisto >= vpravoMisto) (o[0] * w - mezera - sirka).coerceAtLeast(0f).toInt()
-               else (o[2] * w + mezera).coerceAtMost(w - sirka).toInt()
+        if (vlevoMisto >= vpravoMisto) {
+            // vlevo od voleb: měřit od pravého okraje obrazovky, ať pravá hrana sedí u rámečku
+            lp.gravity = Gravity.TOP or Gravity.END
+            lp.x = (w - (o[0] * w - mezera)).coerceAtLeast(0f).toInt()
+        } else {
+            lp.gravity = Gravity.TOP or Gravity.START
+            lp.x = (o[2] * w + mezera).toInt()
+        }
         lp.y = (o[1] * h).toInt()
         runCatching { wm.updateViewLayout(seznam, lp) }
         seznam.visibility = android.view.View.VISIBLE
@@ -320,6 +358,9 @@ class OverlayService : Service() {
         // může stát, že to systém nestihne zaznamenat a aplikaci shodí
         // (ForegroundServiceDidNotStartInTimeException)
         runCatching { startAsForeground() }
+        if (intent?.action == ACTION_SET_OBLAST_TITULKU) {
+            ukazOblastTitulku(intent.getFloatArrayExtra(EXTRA_OBLAST), intent.getBooleanExtra(EXTRA_RAMECEK, false))
+        }
         if (intent?.action == ACTION_SET_VOLBY) {
             ukazVolby(
                 intent.getStringArrayExtra(EXTRA_VOLBY) ?: emptyArray(),
@@ -387,6 +428,9 @@ class OverlayService : Service() {
         ui.removeCallbacks(konecUpravy)
         ui.removeCallbacks(schovejRamecek)
         ramecekVoleb?.let { runCatching { wm.removeView(it) } }
+        ui.removeCallbacks(schovejRamecekTitulku)
+        ramecekTitulku?.let { runCatching { wm.removeView(it) } }
+        ramecekTitulku = null
         seznamVoleb?.let { runCatching { wm.removeView(it) } }
         ramecekVoleb = null
         seznamVoleb = null
@@ -405,6 +449,8 @@ class OverlayService : Service() {
         const val ACTION_SET_NAPOVEDA = "cz.titulky.tv.SET_NAPOVEDA"
         /** Volby odpovědí (česky vedle anglických) + volitelně žlutý rámeček oblasti čtení. */
         const val ACTION_SET_VOLBY = "cz.titulky.tv.SET_VOLBY"
+        /** Modrý rámeček ruční oblasti titulků (EXTRA_OBLAST + EXTRA_RAMECEK = ukázat). */
+        const val ACTION_SET_OBLAST_TITULKU = "cz.titulky.tv.SET_OBLAST_TITULKU"
         const val EXTRA_VOLBY = "volby"
         const val EXTRA_VYBRANA = "vybrana"
         const val EXTRA_OBLAST = "oblast"

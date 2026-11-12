@@ -16,7 +16,13 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 class Ctecka {
 
     /** Každá čtečka má vlastní vlákno, aby dvě čtečky mohly číst současně. */
-    private val vlakno = java.util.concurrent.Executors.newSingleThreadExecutor()
+    // nízká priorita: na slabé televizi čtení nesmí brát procesor spojení s PS5
+    private val vlakno = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread({
+            runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND) }
+            r.run()
+        }, "ctecka")
+    }
     private val recognizer = TextRecognition.getClient(
         TextRecognizerOptions.Builder().setExecutor(vlakno).build()
     )
@@ -64,9 +70,18 @@ class Ctecka {
                     else radky += mutableListOf(k)
                 }
                 hotovo(radky.map { r ->
+                    // na stejné výšce bývá i jmenovka postavy nebo ikona tlačítka daleko od textu volby
+                    // → rozdělit podle velké mezery a vzít nejdelší kus (= samotná volba)
                     val serazene = r.sortedBy { it.left }
-                    serazene.joinToString(" ") { it.text } to
-                        Rect(r.minOf { it.left }, r.minOf { it.top }, r.maxOf { it.right }, r.maxOf { it.bottom })
+                    val vyska = (r.maxOf { it.bottom } - r.minOf { it.top }).coerceAtLeast(1)
+                    val kusy2 = mutableListOf(mutableListOf(serazene.first()))
+                    for (k in serazene.drop(1)) {
+                        if (k.left - kusy2.last().last().right > vyska * 2.5f) kusy2 += mutableListOf(k)
+                        else kusy2.last() += k
+                    }
+                    val hlavni = kusy2.maxByOrNull { g -> g.sumOf { it.text.length } } ?: serazene
+                    hlavni.joinToString(" ") { it.text } to
+                        Rect(hlavni.minOf { it.left }, hlavni.minOf { it.top }, hlavni.maxOf { it.right }, hlavni.maxOf { it.bottom })
                 })
             }
             .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
@@ -104,6 +119,7 @@ class Ctecka {
     ) {
         recognizer.process(InputImage.fromBitmap(obraz, 0))
             .addOnSuccessListener { vysledek ->
+                nesmysl = false
                 val kusy = vysledek.textBlocks
                     .flatMap { it.lines }
                     .mapNotNull { l -> l.boundingBox?.let { Kus(l.text.trim(), it.left, it.top, it.right, it.bottom) } }
@@ -172,7 +188,8 @@ class Ctecka {
                 }
                 // nápovědy k ovládání nejsou dialog
                 hotoveRadky = hotoveRadky.filterNot { r -> r === napovedaRadek || NAPOVEDA.containsMatchIn(r.text) }
-                val napovedaText = napovedaRadek?.text
+                // zkomolená nápověda ("Switch twet yor nnmarY…") se neukazuje – lepší nic než nesmysl
+                val napovedaText = napovedaRadek?.text?.takeUnless { jeNesmysl(it) }
                 val napovedaBox = napovedaRadek?.let { Rect(it.left, it.top, it.right, it.bottom) }
 
                 if (hotoveRadky.isEmpty()) {
@@ -254,6 +271,13 @@ class Ctecka {
 
                 // 3) je to anglicky? (rozpoznání jazyka na PŮVODNÍM textu – i s háčky)
                 val bezJmen = repliky.joinToString(" ") { JMENO_CELE.find(it)?.groupValues?.get(1) ?: it }
+                // špatně přečtený text (rozmazaný obraz, slabá Wi-Fi): "H lhvehite tvgr it sr hol vp…"
+                // → nepřekládat a neukazovat, jinak by na televizi byl nesmysl
+                if (jeNesmysl(bezJmen)) {
+                    nesmysl = true
+                    diagnostika = "  [rozmazané – čtu znovu: " + repliky.joinToString(" / ") + "]"
+                    hotovo(Titulek.NIC); return@addOnSuccessListener
+                }
                 jazyk.identifyLanguage(bezJmen)
                     .addOnSuccessListener { kod ->
                         diagnostika = "jazyk=$kod | " + repliky.joinToString(" / ") +
@@ -317,6 +341,8 @@ class Ctecka {
 
     /** Co čtečka naposledy přečetla a jaký jazyk poznala (pro záznam titulky.log). */
     @Volatile var diagnostika = ""
+    /** Poslední čtení dalo zkomolený text (rozmazaný snímek) → zkusit hned další snímek. */
+    @Volatile var nesmysl = false
 
     private val jazyk = LanguageIdentification.getClient(
         LanguageIdentificationOptions.Builder().setConfidenceThreshold(0.5f).build()
@@ -401,6 +427,61 @@ class Ctecka {
             "don't", "i'm", "can't", "let's", "what's", "that's", "you're", "we're", "ain't"
         )
         fun anglickeSlovo(t: String) = t.lowercase().split(Regex("[^a-z']+")).any { it in ANGLICKA }
+
+        /** Krátká slova bez samohlásky, která v angličtině opravdu existují. */
+        private val BEZ_SAMOHLASKY = setOf(
+            "mr", "mrs", "ms", "dr", "st", "hm", "hmm", "mm", "mmm", "shh", "sh", "psst", "pst",
+            "grr", "brr", "pfft", "tsk", "nth", "zzz", "sgt", "lt", "jr", "vs", "hq", "ft", "lb", "lbs", "km", "kg", "hp", "xp", "pts", "pc", "tv"
+        )
+        /** Dvojice souhlásek, kterými anglické slovo může začínat. */
+        private val ZACATKY = setOf(
+            "bl", "br", "ch", "cl", "cr", "dr", "dw", "fl", "fr", "gh", "gl", "gn", "gr", "kn", "kr", "ph",
+            "pl", "pr", "ps", "sc", "sh", "sk", "sl", "sm", "sn", "sp", "st", "sw", "th", "tr", "tw",
+            "wh", "wr", "sch", "ll", "ts", "zh", "kh", "vl", "mc", "rh", "dm", "sv", "sz"
+        )
+        /** Dvojice písmen, které v anglickém slově skoro nikdy nejsou. */
+        private val NEMOZNE = Regex("bx|cj|cv|cx|dx|fq|fx|gq|gx|hx|jc|jf|jg|jq|js|jv|jw|jx|jz|kq|kx|mx|pq|pv|px|" +
+            "q[^u]|sx|tq|vb|vf|vh|vj|vk|vm|vp|vq|vw|vx|wq|wv|wx|xj|xx|zj|zq|zx")
+
+        private fun jeSamohlaska(c: Char) = c in "aeiouy"
+        private val MNOHO_SOUHLASEK = Regex("[^aeiouy]{5,}")
+
+        /** Vypadá slovo jako nesmysl ze špatného čtení? ("tvgr", "lhvehite", "MuH", "vQur") */
+        fun spatneSlovo(slovo: String): Boolean {
+            val w = slovo.trim('\'', '-')
+            if (w.length < 2) return false
+            // zkratky velkými písmeny ("HQ", "NATO", "RPG") jsou v pořádku
+            if (w.length <= 5 && w.all { it.isUpperCase() }) return false
+            // velké písmeno uprostřed slova ("MuH", "nnmarY", "vQur") – kromě "McKenzie", "MacArthur", "O'Neil"
+            val vnitrni = w.drop(1)
+            if (vnitrni.any { it.isUpperCase() } && !w.all { it.isUpperCase() } &&
+                !w.startsWith("Mc") && !w.startsWith("Mac")) return true
+            val m = w.lowercase()
+            if (m in BEZ_SAMOHLASKY) return false
+            if (m.none { jeSamohlaska(it) }) return true                       // "tvgr", "sr", "vp", "lmv"
+            if (NEMOZNE.containsMatchIn(m)) return true                         // "vq", "jx"…
+            if (m.length >= 3 && !jeSamohlaska(m[0]) && !jeSamohlaska(m[1]) &&
+                m.take(2) !in ZACATKY && m.take(3) !in ZACATKY) return true     // "lhvehite", "wgist", "nnmary"
+            if (MNOHO_SOUHLASEK.containsMatchIn(m) && !m.contains("ngths")) return true
+            return false
+        }
+
+        /**
+         * Je přečtený text nesmysl? Když je zkomolená aspoň třetina slov (nebo 3 a víc),
+         * je obraz nejspíš rozmazaný a text nemá cenu překládat.
+         */
+        fun jeNesmysl(text: String): Boolean {
+            val slova = slovaTextu(text)
+            if (slova.isEmpty()) return false
+            val spatne = slova.count { spatneSlovo(it) }
+            return spatne >= 3 || spatne * 3 >= slova.size
+        }
+
+        /** Kolik slov v textu vypadá zkomoleně (0 = text je čistý). */
+        fun spatnychSlov(text: String) = slovaTextu(text).count { spatneSlovo(it) }
+
+        private fun slovaTextu(text: String) =
+            text.split(Regex("[^A-Za-z'-]+")).map { it.trim('\'', '-') }.filter { it.length >= 2 }
 
         val NAPOVEDA = Regex(
             "(?i)\\b(press|tap|hold|use|select|toggle)(?:[iIlL1|DdOo0]|\\b).{0,40}\\bto\\b" +

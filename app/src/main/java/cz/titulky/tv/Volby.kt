@@ -21,6 +21,8 @@ object Volby {
     @Volatile var oblast = VYCHOZI.copyOf()
     /** Ukazovat žlutý rámeček na televizi pořád (jinak jen při posouvání). */
     @Volatile var ukazatNaTv = false
+    /** Zámeček: žlutý rámeček nejde posunout ani změnit. */
+    @Volatile var zamceno = false
 
     val VYCHOZI get() = floatArrayOf(0.55f, 0.45f, 0.95f, 0.80f)
 
@@ -30,6 +32,7 @@ object Volby {
         val p = prefs(c)
         zapnuto = p.getBoolean("volbyZap", false)
         ukazatNaTv = p.getBoolean("volbyUkazat", false)
+        zamceno = p.getBoolean("volbyZamek", false)
         val v = VYCHOZI
         oblast = floatArrayOf(
             p.getFloat("volbyL", v[0]), p.getFloat("volbyT", v[1]),
@@ -38,7 +41,7 @@ object Volby {
 
     fun uloz(c: Context) {
         val o = oblast
-        prefs(c).edit().putBoolean("volbyZap", zapnuto).putBoolean("volbyUkazat", ukazatNaTv)
+        prefs(c).edit().putBoolean("volbyZap", zapnuto).putBoolean("volbyUkazat", ukazatNaTv).putBoolean("volbyZamek", zamceno)
             .putFloat("volbyL", o[0]).putFloat("volbyT", o[1])
             .putFloat("volbyR", o[2]).putFloat("volbyB", o[3]).apply()
     }
@@ -48,19 +51,55 @@ object Volby {
 }
 
 /**
+ * Ruční oblast titulků (modrý šrafovaný rámeček). Vypnuto = automatické hledání titulků
+ * (spodní část obrazu, aplikace se sama učí, kde titulky jsou). Zapnuto = čte se JEN
+ * v rámečku – hodí se, když hra má titulky jinde nebo aplikace bere i něco okolo.
+ */
+object OblastTitulku {
+    @Volatile var rucne = false
+    /** Zámeček: rámeček nejde posunout ani změnit (ať se omylem neposune). */
+    @Volatile var zamceno = false
+    /** vlevo, nahoře, vpravo, dole – podíl obrazu (0..1) */
+    @Volatile var oblast = VYCHOZI.copyOf()
+
+    val VYCHOZI get() = floatArrayOf(0.10f, 0.72f, 0.90f, 0.97f)
+    val MODRA = 0xFF4FB3FF.toInt()
+
+    private fun prefs(c: Context) = c.getSharedPreferences("gamelingo", Context.MODE_PRIVATE)
+
+    fun nacti(c: Context) {
+        val p = prefs(c)
+        rucne = p.getBoolean("titRucne", false)
+        zamceno = p.getBoolean("titZamek", false)
+        val v = VYCHOZI
+        oblast = floatArrayOf(
+            p.getFloat("titL", v[0]), p.getFloat("titT", v[1]),
+            p.getFloat("titR", v[2]), p.getFloat("titB", v[3]))
+    }
+
+    fun uloz(c: Context) {
+        val o = oblast
+        prefs(c).edit().putBoolean("titRucne", rucne).putBoolean("titZamek", zamceno)
+            .putFloat("titL", o[0]).putFloat("titT", o[1])
+            .putFloat("titR", o[2]).putFloat("titB", o[3]).apply()
+    }
+}
+
+/**
  * Žlutý šrafovaný, lehce průhledný rámeček (oblast čtení voleb).
  * Používá se v mini televizi v telefonu i na skutečné televizi při nastavování.
  */
-class SrafovanyRamecek(c: Context, private val popisek: String? = null) : View(c) {
+class SrafovanyRamecek(c: Context, private val popisek: String? = null, barva: Int = Volby.ZLUTA) : View(c) {
     private val d = c.resources.displayMetrics.density
-    private val vypln = Paint().apply { color = 0x33FFD54A; style = Paint.Style.FILL }
-    private val cara = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x77FFD54A; strokeWidth = 2f * d }
+    private val bezAlfy = barva and 0x00FFFFFF
+    private val vypln = Paint().apply { color = 0x33000000 or bezAlfy; style = Paint.Style.FILL }
+    private val cara = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x77000000 or bezAlfy; strokeWidth = 2f * d }
     private val okraj = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Volby.ZLUTA; style = Paint.Style.STROKE; strokeWidth = 3f * d
+        color = barva; style = Paint.Style.STROKE; strokeWidth = 3f * d
         pathEffect = DashPathEffect(floatArrayOf(10f * d, 6f * d), 0f)
     }
     private val pismo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Volby.ZLUTA; textSize = 12f * d; isFakeBoldText = true
+        color = barva; textSize = 12f * d; isFakeBoldText = true
         setShadowLayer(3f, 0f, 0f, 0xFF000000.toInt())
     }
 

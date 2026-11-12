@@ -28,6 +28,8 @@ object Propojeni {
     private const val TITULEK = "PCT1"
     /** Zpráva s volbami odpovědí: PCV1, číslo, rámeček 0/1, oblast (4 čísla), vybraná, volby (oddělené \n). */
     private const val VOLBY = "PCV1"
+    /** Modrý rámeček ruční oblasti titulků: PCO1, ukázat 0/1, oblast (4 čísla). */
+    private const val OBLAST = "PCO1"
 
     /** Jméno televize, jak ho uvidí telefon v seznamu. */
     fun jmenoZarizeni(c: Context): String =
@@ -49,7 +51,9 @@ object Propojeni {
         context: Context,
         private val priTitulku: (String, Long, String, FloatArray?) -> Unit,
         /** (české volby, která je vybraná (-1 = nevíme), oblast voleb, rámeček: 0 = ne, 1 = chvíli, 2 = trvale) */
-        private val priVolbach: ((List<String>, Int, FloatArray, Int) -> Unit)? = null
+        private val priVolbach: ((List<String>, Int, FloatArray, Int) -> Unit)? = null,
+        /** (oblast titulků, ukázat modrý rámeček) */
+        private val priOblasti: ((FloatArray, Boolean) -> Unit)? = null
     ) {
         @Volatile private var bezi = true
         private val c = context.applicationContext
@@ -93,6 +97,14 @@ object Propojeni {
                         val p = DatagramPacket(buf, buf.size)
                         try { s.receive(p) } catch (e: SocketTimeoutException) { continue }
                         val casti = String(p.data, 0, p.length, Charsets.UTF_8).split("\t")
+                        if (casti.size >= 6 && casti[0] == OBLAST) {
+                            posledniZprava = System.currentTimeMillis()
+                            runCatching {
+                                val o = floatArrayOf(casti[2].toFloat(), casti[3].toFloat(), casti[4].toFloat(), casti[5].toFloat())
+                                priOblasti?.invoke(o, casti[1].trim() == "1")
+                            }
+                            continue
+                        }
                         if (casti.size >= 9 && casti[0] == VOLBY) {
                             posledniZprava = System.currentTimeMillis()
                             val c = casti[1].toLongOrNull() ?: continue
@@ -194,6 +206,11 @@ object Propojeni {
         /** Rámeček voleb ukazovat na televizi pořád (tlačítko v telefonu), ne jen při posouvání. */
         @Volatile var trvaleOblast = false
         @Volatile private var ukazkaText = ""
+
+        /** Modrý rámeček ruční oblasti titulků: ukázat na televizi (při posouvání) nebo schovat. */
+        fun oblastTitulku(o: FloatArray, ukazat: Boolean) {
+            posliData("$OBLAST\t${if (ukazat) 1 else 0}\t${o[0]}\t${o[1]}\t${o[2]}\t${o[3]}".toByteArray(Charsets.UTF_8))
+        }
 
         fun nastavTrvaleOblast(ano: Boolean) {
             synchronized(zamek) { trvaleOblast = ano; cisloVoleb++ }

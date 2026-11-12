@@ -11,13 +11,18 @@ android {
         applicationId = "cz.titulky.tv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "NG 0.1"
+        versionCode = 21
+        versionName = "0.10"
         // jen procesory, které mají televize (ARM) – aplikace je tak o třetinu menší
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
     buildTypes {
         release { isMinifyEnabled = false }
+    }
+    // kontrola "lint" při podepsaném sestavení padá na novém Javě (25) → vypnout, aplikaci neovlivní
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
