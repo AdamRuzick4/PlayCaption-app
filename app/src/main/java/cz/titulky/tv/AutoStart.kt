@@ -22,10 +22,15 @@ class AutoStart : BroadcastReceiver() {
             !jeZapnuto(context) -> "vypnuto uživatelem"
             !RemotePlayUdaje(context).sparovano -> "není spárováno"
             !Settings.canDrawOverlays(context) -> "chybí povolení překrytí"
+            // pojistka pro slabé televize: minulá automatická spuštění neskončila úspěšným
+            // připojením (televize se přetížila / spadla) → nespouštět dokola, jen ručně z aplikace
+            akce != Intent.ACTION_MY_PACKAGE_REPLACED && neuspesnychStartu(context) >= 2 ->
+                "minulá spuštění se nepovedla (možná přetížená televize) – spusť PlayCaption ručně"
             else -> null
         }
         zapis(context, "[autostart: $akce" + (duvod?.let { " – nespouštím: $it" } ?: " – spouštím") + "]")
         if (duvod != null) return
+        prefs(context).edit().putInt("neuspesne", neuspesnychStartu(context) + 1).apply()
         try {
             context.startForegroundService(Intent(context, OverlayService::class.java))
             context.startForegroundService(Intent(context, RemotePlayService::class.java))
@@ -43,5 +48,8 @@ class AutoStart : BroadcastReceiver() {
         /** Uživatel chce titulky automaticky (vypne se tlačítkem 8 → Zastavit). */
         fun jeZapnuto(c: Context) = prefs(c).getBoolean("zapnuto", true)
         fun nastavZapnuto(c: Context, ano: Boolean) = prefs(c).edit().putBoolean("zapnuto", ano).apply()
+        fun neuspesnychStartu(c: Context) = prefs(c).getInt("neuspesne", 0)
+        /** Spojení s PS5 vydrželo → automatické spouštění je zase bezpečné. */
+        fun uspech(c: Context) { if (neuspesnychStartu(c) != 0) prefs(c).edit().putInt("neuspesne", 0).apply() }
     }
 }

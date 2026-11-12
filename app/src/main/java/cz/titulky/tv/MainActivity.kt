@@ -86,6 +86,8 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (obrazovka == "hlavni") ukazHlavni()
+        // vrátil se z nastavení a povolení pořád nemá → televize ho asi schovává, ukázat návod
+        if (zkouselPovoleni && !Rezim.jeTelefon(this) && !Settings.canDrawOverlays(this)) ukazNavodPovoleni()
     }
 
     override fun onPause() {
@@ -321,6 +323,8 @@ class MainActivity : Activity() {
             val k = karta()
             k.addView(text(t("povoleniPopis"), 17f, Color.parseColor("#FFC24B")))
             k.addView(tlacitkoCervene(t("povoleni")) { pozadejOPovoleni() }, obal(top = 10))
+            k.addView(tlacitko(t("povoleniNavodBtn"), 17f) { ukazNavodPovoleni() }
+                .apply { setPadding(dp(20), dp(10), dp(20), dp(10)) }, obal(top = 8))
             vlevo.addView(k, odsazeni(bottom = 14))
         }
 
@@ -401,7 +405,7 @@ class MainActivity : Activity() {
             if (udaje.sparovano && Settings.canDrawOverlays(this)) {
                 RemotePlayService.pozastaveno = false
                 AutoStart.nastavZapnuto(this, true)
-                RemotePlayService.spustVse(this, prevzit = true)
+                run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
                 Oznameni.ukaz(this, t("hratInfo"))
             }
             moveTaskToBack(true)
@@ -413,6 +417,12 @@ class MainActivity : Activity() {
             background = zaobleni(KARTA, 16f)
             setPadding(dp(24), dp(16), dp(24), dp(16))
         }, odsazeni(top = 18))
+        // poděkování open-source projektu Chiaki / chiaki-ng (licence AGPLv3)
+        vpravo.addView(text(t("zasluhy"), 13f, TEXT2).apply {
+            setLineSpacing(0f, 1.25f)
+            alpha = 0.85f
+            setPadding(dp(24), dp(4), dp(24), dp(8))
+        }, odsazeni(top = 10))
 
         val obsah = if (telefon) svisle().apply {
             addView(vlevo, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -466,7 +476,7 @@ class MainActivity : Activity() {
         } else {
             RemotePlayService.pozastaveno = false
             AutoStart.nastavZapnuto(this, true)
-            if (!RemotePlayService.aktivni) RemotePlayService.spustVse(this, prevzit = true)
+            if (!RemotePlayService.aktivni) run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
         }
         ui.postDelayed({ obnovStav() }, 600)
     }
@@ -546,7 +556,7 @@ class MainActivity : Activity() {
                             parovaniStav.text = if (ok) "✔ ${t("sparovano")}" else "✘ $zprava"
                             if (ok) {
                                 AutoStart.nastavZapnuto(this, true)
-                                if (!telefon && Settings.canDrawOverlays(this)) RemotePlayService.spustVse(this, prevzit = true)
+                                if (!telefon && Settings.canDrawOverlays(this)) run { AutoStart.uspech(this); RemotePlayService.spustVse(this, prevzit = true) }
                                 ui.postDelayed({ ukazHlavni() }, 1200)
                             }
                         }
@@ -668,11 +678,29 @@ class MainActivity : Activity() {
 
     // ------------------------------------------------------------------ povolení
 
+    /** Zkusil uživatel otevřít povolení? (po návratu bez povolení → ukázat návod) */
+    private var zkouselPovoleni = false
+
     private fun pozadejOPovoleni() {
+        zkouselPovoleni = true
         try {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        } catch (e: ActivityNotFoundException) {
-            runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+        } catch (e: Throwable) {
+            // televize stránku s povolením nemá (schovaná) → rovnou návod
+            ukazNavodPovoleni()
+        }
+    }
+
+    /** Návod, když televize povolení "Zobrazovat přes jiné aplikace" schovává. */
+    private fun ukazNavodPovoleni() {
+        zkouselPovoleni = false
+        val ip = runCatching { PrihlaseniTelefonem.mojeIp() }.getOrNull() ?: "IP_TELEVIZE"
+        runCatching {
+            android.app.AlertDialog.Builder(this)
+                .setTitle(t("povoleniNavodNadpis"))
+                .setMessage(t("povoleniNavod").replace("%IP%", ip))
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 

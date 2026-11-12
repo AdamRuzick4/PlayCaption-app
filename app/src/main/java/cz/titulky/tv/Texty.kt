@@ -93,6 +93,14 @@ object Texty {
             "💡 La rapidité et la précision des sous-titres dépendent surtout de la vitesse de ta connexion internet et de la puissance de ton appareil. Idéal : câble réseau ou Wi-Fi 5 GHz.",
             "💡 La rapidez y precisión de los subtítulos dependen sobre todo de la velocidad de tu conexión a internet y de la potencia de tu dispositivo. Mejor con cable de red o Wi-Fi de 5 GHz.",
             "💡 Velocità e precisione dei sottotitoli dipendono soprattutto dalla velocità della connessione internet e dalle prestazioni del dispositivo. Meglio con cavo di rete o Wi-Fi a 5 GHz."),
+        "zasluhy" to listOf(
+            "Spojení s PS5 a přenos obrazu zajišťuje open-source projekt Chiaki / chiaki-ng (licence AGPLv3) – velké díky jeho autorům. PlayCaption je také open-source pod AGPLv3: github.com/AdamRuzick4/PlayCaption-app",
+            "Spojenie s PS5 a prenos obrazu zabezpečuje open-source projekt Chiaki / chiaki-ng (licencia AGPLv3) – veľká vďaka jeho autorom. PlayCaption je tiež open-source pod AGPLv3: github.com/AdamRuzick4/PlayCaption-app",
+            "Die Verbindung zur PS5 und die Bildübertragung übernimmt das Open-Source-Projekt Chiaki / chiaki-ng (AGPLv3) – großer Dank an seine Autoren. PlayCaption ist ebenfalls Open Source (AGPLv3): github.com/AdamRuzick4/PlayCaption-app",
+            "Połączenie z PS5 i przesyłanie obrazu zapewnia projekt open-source Chiaki / chiaki-ng (AGPLv3) – wielkie dzięki jego autorom. PlayCaption jest również open-source (AGPLv3): github.com/AdamRuzick4/PlayCaption-app",
+            "La connexion à la PS5 et le flux vidéo reposent sur le projet open source Chiaki / chiaki-ng (AGPLv3) – un grand merci à ses auteurs. PlayCaption est aussi open source (AGPLv3) : github.com/AdamRuzick4/PlayCaption-app",
+            "La conexión con la PS5 y la transmisión de imagen las proporciona el proyecto de código abierto Chiaki / chiaki-ng (AGPLv3) – muchas gracias a sus autores. PlayCaption también es de código abierto (AGPLv3): github.com/AdamRuzick4/PlayCaption-app",
+            "La connessione alla PS5 e lo streaming sono forniti dal progetto open source Chiaki / chiaki-ng (AGPLv3) – grazie mille ai suoi autori. Anche PlayCaption è open source (AGPLv3): github.com/AdamRuzick4/PlayCaption-app"),
         "brzy" to listOf("připravujeme", "pripravujeme", "in Vorbereitung", "wkrótce", "bientôt", "próximamente", "in arrivo"),
         "podpora" to listOf("Podpora", "Podpora", "Unterstützung", "Wsparcie", "Soutien", "Apoyo", "Supporto"),
         "podporaNadpis" to listOf("Líbí se ti PlayCaption?", "Páči sa ti PlayCaption?", "Gefällt dir PlayCaption?", "Podoba ci się PlayCaption?", "Tu aimes PlayCaption ?", "¿Te gusta PlayCaption?", "Ti piace PlayCaption?"),
@@ -107,6 +115,32 @@ object Texty {
         "hratInfo" to listOf("✔ PlayCaption běží – přepni na PlayStation a hraj", "✔ PlayCaption beží – prepni na PlayStation a hraj", "✔ PlayCaption läuft – wechsle zur PlayStation und spiel", "✔ PlayCaption działa – przełącz na PlayStation i graj", "✔ PlayCaption est actif – passe sur la PlayStation et joue", "✔ PlayCaption activo – cambia a la PlayStation y juega", "✔ PlayCaption attivo – passa alla PlayStation e gioca"),
         "zpet" to listOf("Zpět", "Späť", "Zurück", "Wstecz", "Retour", "Atrás", "Indietro"),
         "povoleni" to listOf("Povolit zobrazení přes jiné aplikace", "Povoliť zobrazenie cez iné aplikácie", "Über anderen Apps anzeigen erlauben", "Zezwól na wyświetlanie nad innymi aplikacjami", "Autoriser l'affichage par-dessus", "Permitir mostrar sobre otras apps", "Consenti la visualizzazione sopra altre app"),
+        "povoleniNavodBtn" to listOf("Nejde to? Návod", "Nejde to? Návod", "Geht nicht? Anleitung", "Nie działa? Instrukcja", "Ça ne marche pas ? Aide", "¿No funciona? Ayuda", "Non funziona? Guida"),
+        "povoleniNavodNadpis" to listOf("Jak povolit zobrazení přes jiné aplikace", "Ako povoliť zobrazenie cez iné aplikácie", "Überlagerung erlauben", "Jak zezwolić na wyświetlanie nad aplikacjami", "Autoriser la superposition", "Permitir mostrar sobre otras apps", "Consentire la sovrapposizione"),
+        "povoleniNavod" to listOf(
+            "Bez tohoto povolení nemůže PlayCaption ukázat titulky přes obraz z PS5.\n\n" +
+            "1) Zkus v televizi: Nastavení → Aplikace → Zvláštní přístup aplikací → Zobrazení přes jiné aplikace (nebo „Překrytí“) → PlayCaption → Povolit.\n" +
+            "   Někde: Nastavení → Aplikace → PlayCaption → Oprávnění.\n\n" +
+            "2) Některé televize tuhle volbu schovávají (hlavně starší a slabší modely). Pak jde povolit jen z počítače:\n" +
+            "   • V televizi zapni režim vývojáře (Nastavení → Informace → 7× klikni na Sestavení) a v Možnostech vývojáře zapni Ladění USB / síťové ladění.\n" +
+            "   • V počítači (Android SDK – adb):\n" +
+            "     adb connect %IP%:5555\n" +
+            "     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n" +
+            "3) Pak PlayCaption vynuceně ukonči a spusť znovu.\n\nPomoc: Facebook skupina PlayCaption – testování.",
+            "Bez tohto povolenia nemôže PlayCaption zobraziť titulky cez obraz z PS5.\n\n" +
+            "1) Skús v televízore: Nastavenia → Aplikácie → Špeciálny prístup aplikácií → Zobrazenie cez iné aplikácie (alebo „Prekrytie“) → PlayCaption → Povoliť.\n" +
+            "   Niekde: Nastavenia → Aplikácie → PlayCaption → Povolenia.\n\n" +
+            "2) Niektoré televízory túto voľbu skrývajú (hlavne staršie a slabšie modely). Potom sa dá povoliť len z počítača:\n" +
+            "   • V televízore zapni režim vývojára (Nastavenia → Informácie → 7× klikni na Zostava) a v Možnostiach vývojára zapni Ladenie USB / sieťové ladenie.\n" +
+            "   • V počítači (Android SDK – adb):\n" +
+            "     adb connect %IP%:5555\n" +
+            "     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n" +
+            "3) Potom PlayCaption vynútene ukonči a spusti znova.\n\nPomoc: Facebook skupina PlayCaption – testovanie.",
+            "Without this permission PlayCaption can't show subtitles over the PS5 picture.\n\n1) TV: Settings → Apps → Special app access → Display over other apps → PlayCaption → Allow.\n\n2) If the option is hidden: enable developer options + USB/network debugging, then on a PC:\n     adb connect %IP%:5555\n     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n3) Force stop PlayCaption and start it again.",
+            "Without this permission PlayCaption can't show subtitles over the PS5 picture.\n\n1) TV: Settings → Apps → Special app access → Display over other apps → PlayCaption → Allow.\n\n2) If the option is hidden: enable developer options + USB/network debugging, then on a PC:\n     adb connect %IP%:5555\n     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n3) Force stop PlayCaption and start it again.",
+            "Without this permission PlayCaption can't show subtitles over the PS5 picture.\n\n1) TV: Settings → Apps → Special app access → Display over other apps → PlayCaption → Allow.\n\n2) If the option is hidden: enable developer options + USB/network debugging, then on a PC:\n     adb connect %IP%:5555\n     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n3) Force stop PlayCaption and start it again.",
+            "Without this permission PlayCaption can't show subtitles over the PS5 picture.\n\n1) TV: Settings → Apps → Special app access → Display over other apps → PlayCaption → Allow.\n\n2) If the option is hidden: enable developer options + USB/network debugging, then on a PC:\n     adb connect %IP%:5555\n     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n3) Force stop PlayCaption and start it again.",
+            "Without this permission PlayCaption can't show subtitles over the PS5 picture.\n\n1) TV: Settings → Apps → Special app access → Display over other apps → PlayCaption → Allow.\n\n2) If the option is hidden: enable developer options + USB/network debugging, then on a PC:\n     adb connect %IP%:5555\n     adb shell appops set cz.titulky.tv SYSTEM_ALERT_WINDOW allow\n\n3) Force stop PlayCaption and start it again."),
         "povoleniPopis" to listOf(
             "Bez tohoto povolení nemůže PlayCaption ukázat překlad přes hru.", "Bez tohto povolenia nemôže PlayCaption ukázať preklad cez hru.",
             "Ohne diese Erlaubnis kann PlayCaption die Übersetzung nicht über dem Spiel zeigen.", "Bez tego PlayCaption nie pokaże tłumaczenia nad grą.",

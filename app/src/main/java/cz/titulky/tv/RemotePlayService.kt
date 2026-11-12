@@ -44,6 +44,8 @@ class RemotePlayService : Service() {
     private val obsazenoOd = LongArray(ctecky.size)
     /** "Otisk" oblasti titulků z posledního čtení – když se nezměnil, znovu se nečte. */
     private var posledniOtisk: IntArray? = null
+    @Volatile private var nesmysluZaSebou = 0
+    @Volatile private var nejistychZaSebou = 0
     // statistika do záznamu (jednou za 30 s): kolikrát se četlo / přeskočilo
     @Volatile private var stCteni = 0
     @Volatile private var stSkipStejne = 0
@@ -99,7 +101,7 @@ class RemotePlayService : Service() {
                     val prevzit = intent?.getBooleanExtra(EXTRA_PREVZIT, false) == true
                     if (prevzit) chciPS5 = true
                     if (prevzit) {
-                        zapis("[přebírám PS5 od jiného zařízení]")
+                        zapis("[Hotovo – hrát: připojuji (případné jiné zařízení s PlayCaption se odpojí)]")
                         neuspechu = 0
                         Predavani.posli()
                         ui.postDelayed(hlidac, 3000)
@@ -204,6 +206,33 @@ class RemotePlayService : Service() {
     @Volatile private var posledniSnimekKdy = 0L
 
     /**
+     * Některé televize (Philips aj.) obraz z PS5 dekódují, ale nedají ho jako surová data (YUV) –
+     * po připojení pak "nechodí žádný obraz". Takové televizi se obraz bere přes grafický čip
+     * (OpenGL) jako u telefonů. Zjistí se samo po prvním připojení a televize si to zapamatuje.
+     */
+    private val prefsObraz by lazy { getSharedPreferences("obraz", MODE_PRIVATE) }
+    @Volatile private var obrazPresGl = false
+    private var pripojenoKdy = 0L
+
+    /** 15 s po připojení: přišel obraz? Když ne a ještě jsme nezkusili OpenGL → přepnout a připojit znovu. */
+    private val kontrolaObrazu = Runnable {
+        if (session == null || telefon || obrazPresGl) return@Runnable
+        val ted = System.currentTimeMillis()
+        val bezObrazu = posledniSnimekKdy <= pripojenoKdy || ted - posledniSnimekKdy > 6000
+        if (bezObrazu) {
+            obrazPresGl = true
+            prefsObraz.edit().putBoolean("gl", true).apply()
+            zapis("[televize nedává obraz (YUV) → přepínám na OpenGL a připojuji znovu]")
+            zapniUsporu("obraz se zastavil")
+            zastav("", ukazat = false)
+            neuspechu = 0
+            ui.removeCallbacks(hlidac)
+            // PS5 staré spojení chvíli drží ("already in use") → počkat déle
+            ui.postDelayed(hlidac, 8000)
+        } else zapis("[obraz OK: YUV]")
+    }
+
+    /**
      * Hlídač "mrtvého" spojení: když televize nebo PS5 usnuly, spojení se často neukončí samo
      * (nepřijde žádná zpráva o konci) – aplikace si pak myslí, že je připojená, a nic nedělá.
      * Když 30 s nepřišel žádný obraz, spojení zahodit a zkusit se připojit znovu.
@@ -214,6 +243,7 @@ class RemotePlayService : Service() {
             val ted = System.currentTimeMillis()
             if (session != null && posledniSnimekKdy > 0 && ted - posledniSnimekKdy > 30_000) {
                 zapis("[žádný obraz ${(ted - posledniSnimekKdy) / 1000} s – spojení je mrtvé, připojuji znovu]")
+                zapniUsporu("spojení padá")
                 zastav("", ukazat = false)
                 neuspechu = 0
                 ui.removeCallbacks(hlidac)
@@ -323,8 +353,9 @@ class RemotePlayService : Service() {
         // Telefony (Xiaomi aj.) do YUV dekódovat neumí → obraz přes grafický čip (GlSnimac).
         snimac?.zavri(); snimac = null
         val plocha: android.view.Surface
-        if (telefon) {
-            zapis("[obraz: OpenGL (telefon)]")
+        obrazPresGl = obrazPresGl || prefsObraz.getBoolean("gl", false)
+        if (telefon || obrazPresGl) {
+            zapis(if (telefon) "[obraz: OpenGL (telefon)]" else "[obraz: OpenGL (televize)]")
             val g = GlSnimac(SIRKA, VYSKA) { gl ->
                 try {
                     val volna = volnaCteckaProSnimek()
@@ -507,6 +538,15 @@ class RemotePlayService : Service() {
                 // druhá čtečka mezitím přečetla novější snímek → tenhle výsledek je zastaralý
                 if (cislo < posledniVysledek) return@prectiPosledniTitulek
                 posledniVysledek = cislo
+                // zkomolený text (rozmazaný snímek) → neukazovat ho a hned přečíst další snímek,
+                // ten bývá ostřejší. Dosavadní český titulek zůstává. Když je zkomolené i ~6 čtení po sobě,
+                // pokračuje se jako by nic nebylo (titulek zmizí) – lepší nic než nesmysl.
+                if (ctecka.nesmysl) {
+                    nesmysluZaSebou++
+                    zapis(ctecka.diagnostika)
+                    posledniOtisk = null
+                    if (nesmysluZaSebou < 6) return@prectiPosledniTitulek
+                } else nesmysluZaSebou = 0
                 // souřadnice ze zmenšeného pásu zpět do výřezu
                 val titulek = Ctecka.Titulek(surovy.repliky, surovy.box?.let { pas.zpet(it) },
                     surovy.radku, surovy.jmenaBoxy.map { r -> r?.let { pas.zpet(it) } })
@@ -539,8 +579,9 @@ class RemotePlayService : Service() {
                 casCteni = System.currentTimeMillis() - zacatek
                 // 3× po sobě čtení přes 2,5 s → slabá televize
                 if (!druhyPokus && !telefon) {
-                    pomalaCteni = if (casCteni > 2500) pomalaCteni + 1 else 0
-                    if (pomalaCteni >= 3) zapniUsporu("pomalé čtení (${casCteni} ms)")
+                    // slabá televize: už jedno čtení přes 2 s → šetřit hned (jinak PS5 přestane posílat obraz)
+                    pomalaCteni = if (casCteni > 2000) pomalaCteni + 1 else 0
+                    if (pomalaCteni >= 1) zapniUsporu("pomalé čtení (${casCteni} ms)")
                     // v úsporném režimu, ale čte rychle (10× po sobě pod 1,5 s) → televize není slabá,
                     // příště úsporný režim nezapínat hned od začátku
                     if (uspora) {
@@ -583,6 +624,16 @@ class RemotePlayService : Service() {
                             ukaz("", 0)
                         }
                         } else {
+                        // nový titulek, ale některé slovo vypadá zkomoleně ("vQur primery … wenpon")
+                        // → ještě nepřekládat, přečíst další snímek (bývá ostřejší). Nejvýš 2× – pak se
+                        // přeloží to, co máme (překladač si s jedním zkomoleným slovem většinou poradí).
+                        if (Ctecka.spatnychSlov(text) > 0 && nejistychZaSebou < 2) {
+                            nejistychZaSebou++
+                            zapis("  [nejisté čtení – zkusím ostřejší snímek]")
+                            posledniOtisk = null
+                            return@prectiPosledniTitulek
+                        }
+                        nejistychZaSebou = 0
                         prectenoPosledne = text
                         prvniVidenoKdy = ted
                         // nový titulek mohl být přečtený ještě při vynořování ("Watch nui here.") →
@@ -1229,6 +1280,11 @@ class RemotePlayService : Service() {
             is ConnectedEvent -> {
                 zapis("[PŘIPOJENO k PS5]")
                 posledniSnimekKdy = System.currentTimeMillis()
+                pripojenoKdy = posledniSnimekKdy
+                // 60 s stabilního spojení = televize to zvládá → automatické spouštění povolit
+                ui.postDelayed({ if (session != null) runCatching { AutoStart.uspech(this) } }, 60_000)
+                ui.removeCallbacks(kontrolaObrazu)
+                if (!telefon && !obrazPresGl) ui.postDelayed(kontrolaObrazu, 15_000)
                 // druhé zařízení se mohlo mezitím samo připojit zpátky → ještě jednou ho odpojit
                 if (chciPS5) Predavani.posli()
                 stav = "Připojeno k PS5 ✔ – čtu titulky"
@@ -1255,7 +1311,18 @@ class RemotePlayService : Service() {
             is QuitEvent -> {
                 zapis("[UKONČENO: ${udalost.reason} / ${udalost.reasonString}]")
                 // PS5 šla spát / vypnula se → potichu, aplikace zase čeká
-                zastav("Remote Play ukončeno: ${udalost.reasonString ?: udalost.reason}", ukazat = !automat)
+                // srozumitelně česky a s tím, že se aplikace připojí znovu SAMA (lidé jinak hned
+                // vynucují ukončení / restartují PS5 a nepočkají)
+                val duvod = "${udalost.reasonString ?: ""} ${udalost.reason}".lowercase()
+                val zprava = when {
+                    "already in use" in duvod ->
+                        "PS5 ještě drží předchozí spojení – za chvíli se připojím znovu sám, nic nedělej."
+                    "session request" in duvod || "ctrl" in duvod ->
+                        "PS5 spojení zatím odmítla – zkusím to znovu sám za pár vteřin."
+                    else ->
+                        "Spojení s PS5 se přerušilo (např. přepnutí účtu na PS5) – připojím se znovu sám."
+                }
+                zastav(if (automat) zprava else "Remote Play ukončeno: ${udalost.reasonString ?: udalost.reason}", ukazat = !automat)
                 znovuPozdeji()
             }
             else -> {}

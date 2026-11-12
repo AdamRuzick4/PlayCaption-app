@@ -37,7 +37,15 @@ class OverlayService : Service() {
         super.onCreate()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startAsForeground()
-        addOverlay()
+        // bez povolení "Zobrazovat přes jiné aplikace" by addView aplikaci shodil (BadTokenException)
+        // → nespadnout, jen titulky neukazovat; aplikace o povolení požádá na hlavní obrazovce
+        if (!android.provider.Settings.canDrawOverlays(this) || runCatching { addOverlay() }.isFailure) {
+            runCatching {
+                java.io.File(filesDir, "titulky.log").appendText(
+                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date()) +
+                        " [CHYBÍ povolení „Zobrazovat přes jiné aplikace“ – titulky nejde ukázat]\n")
+            }
+        }
     }
 
     private fun startAsForeground() {
