@@ -23,6 +23,8 @@ object Volby {
     @Volatile var ukazatNaTv = false
     /** Zámeček: žlutý rámeček nejde posunout ani změnit. */
     @Volatile var zamceno = false
+    /** Režim Text: celý text v rámečku (dopis, SMS, popis úkolu) se přeloží jako celek, ne jako seznam voleb. */
+    @Volatile var rezimText = false
 
     val VYCHOZI get() = floatArrayOf(0.55f, 0.45f, 0.95f, 0.80f)
 
@@ -33,6 +35,7 @@ object Volby {
         zapnuto = p.getBoolean("volbyZap", false)
         ukazatNaTv = p.getBoolean("volbyUkazat", false)
         zamceno = p.getBoolean("volbyZamek", false)
+        rezimText = p.getBoolean("volbyRezimText", false)
         val v = VYCHOZI
         oblast = floatArrayOf(
             p.getFloat("volbyL", v[0]), p.getFloat("volbyT", v[1]),
@@ -41,10 +44,13 @@ object Volby {
 
     fun uloz(c: Context) {
         val o = oblast
-        prefs(c).edit().putBoolean("volbyZap", zapnuto).putBoolean("volbyUkazat", ukazatNaTv).putBoolean("volbyZamek", zamceno)
+        prefs(c).edit().putBoolean("volbyZap", zapnuto).putBoolean("volbyUkazat", ukazatNaTv).putBoolean("volbyZamek", zamceno).putBoolean("volbyRezimText", rezimText)
             .putFloat("volbyL", o[0]).putFloat("volbyT", o[1])
             .putFloat("volbyR", o[2]).putFloat("volbyB", o[3]).apply()
     }
+
+    /** „Vybraná volba“ = -2 → televize ví, že jde o text (dopis…), a nechá ho na obrazovce déle. */
+    const val VYBRANA_TEXT = -2
 
     /** Barva rámečku voleb (stejná žlutá jako nápověda). */
     val ZLUTA = 0xFFFFD54A.toInt()

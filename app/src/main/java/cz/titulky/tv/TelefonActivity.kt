@@ -38,6 +38,14 @@ class TelefonActivity : Activity() {
     private lateinit var segTv: TextView
     private lateinit var segTel: TextView
     private lateinit var tip: TextView
+    private lateinit var horniPanel: View
+    /** Tlačítko ⇄ Xbox / ⇄ PS5 (jen když jsou zapnuté obě konzole). */
+    private var prepnoutKonzoli: TextView? = null
+    /** Na šířku (jen titulky v telefonu): malá zelená tečka „Titulky aktivní“ v rohu. */
+    private lateinit var sirkaZnacka: LinearLayout
+    private lateinit var sirkaTecka: View
+    /** Telefon je otočený na šířku a titulky se ukazují jen v telefonu → černá obrazovka jen s titulky. */
+    private var naSirku = false
 
     /** Velikosti písma – ťuknutím na text se přepínají. */
     private val VELIKOSTI = floatArrayOf(28f, 36f, 46f)
@@ -47,9 +55,10 @@ class TelefonActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // jen na výšku: otočení telefonu na bok by obrazovku postavilo znovu a na pár vteřin
-        // by se titulky přestaly posílat do televize (ukazovaly se jen v telefonu)
-        runCatching { requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        // Titulky do televize (obrazovka s posuvníky) → jen na výšku.
+        // Titulky jen v telefonu → jde otočit na šířku (černá obrazovka jen s titulky).
+        // Otočení obrazovku nestaví znovu (configChanges v manifestu) → spojení se nepřeruší.
+        nastavOtaceni(Propojeni.Vysilac.cilIp != null)
         Pady.hlidej(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         Volby.nacti(this)
@@ -58,6 +67,9 @@ class TelefonActivity : Activity() {
         Propojeni.Vysilac.trvaleOblast = Volby.zapnuto && Volby.ukazatNaTv
         Propojeni.Vysilac.upravujiOblast(Volby.oblast, ukazat = false)
         postav()
+        // spuštěno rovnou na šířku (jen telefon) → hned černá obrazovka s titulky
+        prepniSirku(resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+            Propojeni.Vysilac.cilIp == null)
         // spustit spojení s PS5 (bez kreslení přes jiné aplikace)
         RemotePlayService.pozastaveno = false
         TelefonTitulky.odpojeno = false
@@ -127,7 +139,7 @@ class TelefonActivity : Activity() {
     }
 
     /**
-     * Telefon odložený (zamčený / jiná aplikace) → za 1 min spojení s PS5 ukončit.
+     * Telefon odložený (zamčený) → za 1 min spojení s PS5 ukončit.
      * Zamčený telefon totiž nedostane zprávu "PS5 si bere televize" (Wi-Fi spí) a držel by PS5
      * dál – televize by se pak nemohla připojit ("already in use").
      */
@@ -135,17 +147,57 @@ class TelefonActivity : Activity() {
         if (!isFinishing) finish()
     }
 
+    /** PlayCaption je v pozadí (foťák, jiná aplikace…). */
+    private var vPozadi = false
+
+    /**
+     * Odpojit se jen když je telefon ZAMČENÝ (displej zhasl) – ne když je jen otevřená jiná
+     * aplikace (třeba foťák při natáčení videa). Zhasne displej → za 1 min konec.
+     */
+    private val displej = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: android.content.Context?, i: Intent?) {
+            when (i?.action) {
+                Intent.ACTION_SCREEN_OFF -> if (vPozadi) { ui.removeCallbacks(odlozeno); ui.postDelayed(odlozeno, 60_000) }
+                Intent.ACTION_SCREEN_ON -> ui.removeCallbacks(odlozeno)
+            }
+        }
+    }
+    private var displejHlidam = false
+
     override fun onStart() {
         super.onStart()
+        vPozadi = false
         ui.removeCallbacks(odlozeno)
+        if (!displejHlidam) runCatching {
+            registerReceiver(displej, android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON)
+            })
+            displejHlidam = true
+        }
     }
 
     override fun onStop() {
-        if (!isChangingConfigurations && !isFinishing) ui.postDelayed(odlozeno, 60_000)
+        if (!isChangingConfigurations && !isFinishing) {
+            vPozadi = true
+            // displej už nesvítí (telefon zamčený) → za 1 min konec; svítí (jiná aplikace) → čekat na zhasnutí
+            val sviti = runCatching { (getSystemService(POWER_SERVICE) as android.os.PowerManager).isInteractive }.getOrDefault(false)
+            if (!sviti) ui.postDelayed(odlozeno, 60_000)
+        }
         super.onStop()
     }
 
+    /**
+     * Zpět (tlačítko / gesto) dřív aplikaci zavřelo a tím i ukončilo spojení s PS5/Xboxem.
+     * Teď ji jen schová do pozadí – titulky běží dál. Ukončit jde tlačítkem v aplikaci.
+     */
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        if (RemotePlayService.aktivni) moveTaskToBack(true)
+        else @Suppress("DEPRECATION") super.onBackPressed()
+    }
+
     override fun onDestroy() {
+        if (displejHlidam) { runCatching { unregisterReceiver(displej) }; displejHlidam = false }
         if (isFinishing) zastav()
         super.onDestroy()
     }
@@ -351,6 +403,8 @@ class TelefonActivity : Activity() {
         var zamcenyDotyk = false
         var chytX = 0f; var chytY = 0f
         obrazovka.setOnTouchListener { v, e ->
+            // prst v mini televizi posouvá rámečky – stránka (ScrollView) se při tom nesmí hýbat
+            if (e.action == android.view.MotionEvent.ACTION_DOWN) v.parent?.requestDisallowInterceptTouchEvent(true)
             val w = v.width.toFloat(); val h = v.height.toFloat()
             if (e.action == android.view.MotionEvent.ACTION_DOWN) ui.removeCallbacks(konecUprav)
             // prst puštěn → rámečky na televizi za chvilku schovat (při tažení je vidět, kam to jde)
@@ -551,6 +605,37 @@ class TelefonActivity : Activity() {
             Volby.zamceno -> t("volbyNapZamceno")
             else -> t("volbyNavod")
         })
+        // režim žlutého rámečku: Volby (seznam odpovědí) / Text (dopis, SMS, popis úkolu jako celek)
+        if (Volby.zapnuto) {
+            val radekRezim = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                background = GradientDrawable().apply { cornerRadius = 999f; setColor(Color.parseColor("#333338")) }
+                setPadding(dp(2), dp(2), dp(2), dp(2))
+            }
+            fun rezim(popis: String, text: Boolean) = TextView(this).apply {
+                this.text = popis
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                val zvoleno = Volby.rezimText == text
+                setTextColor(if (zvoleno) Color.BLACK else Color.WHITE)
+                alpha = if (zvoleno) 1f else 0.6f
+                background = GradientDrawable().apply { cornerRadius = 999f; setColor(if (zvoleno) Volby.ZLUTA else Color.TRANSPARENT) }
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                setOnClickListener {
+                    if (Volby.rezimText != text) {
+                        Volby.rezimText = text
+                        Volby.uloz(this@TelefonActivity)
+                        Propojeni.Vysilac.nastavVolby(emptyList(), -1)
+                        obnovUpravy()
+                    }
+                }
+            }
+            radekRezim.addView(rezim(t("rezimVolby"), false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            radekRezim.addView(rezim(t("rezimText"), true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            obal.addView(radekRezim, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+            sedaNapoveda(if (Volby.rezimText) t("rezimTextNap") else t("rezimVolbyNap"))
+        }
         if (Volby.zapnuto && !Volby.zamceno) {
             // ukazovat rámeček na televizi pořád (jen když chci vidět, kde je), jinak jen při posouvání
             obal.addView(TextView(this).apply {
@@ -718,8 +803,20 @@ class TelefonActivity : Activity() {
             setPadding(dp(16), dp(2), dp(16), dp(10))
             addView(tecka, LinearLayout.LayoutParams(dp(9), dp(9)).apply { rightMargin = dp(8) })
             addView(stav, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            // obě konzole zapnuté → přepnout (stejně jako na televizi)
+            addView(TextView(this@TelefonActivity).apply {
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+                background = zaobleni(Color.parseColor("#E5091A"))
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                visibility = View.GONE
+                setOnClickListener { RemotePlayService.prepni(this@TelefonActivity, naXbox = !RemotePlayService.naXboxu) }
+                prepnoutKonzoli = this
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { leftMargin = dp(8) })
         }
         val horni = LinearLayout(this).apply {
+            horniPanel = this
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#111114"))
             addView(lista, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -739,6 +836,22 @@ class TelefonActivity : Activity() {
             addView(horni, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             obalTitulku = FrameLayout(this@TelefonActivity).apply {
                 addView(titulek, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                // na šířku: malá zelená tečka v rohu, ať to neruší
+                sirkaTecka = View(this@TelefonActivity).apply { background = zaobleni(Color.parseColor("#3CFF6E")) }
+                sirkaZnacka = LinearLayout(this@TelefonActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    alpha = 0.6f
+                    visibility = View.GONE
+                    addView(sirkaTecka, LinearLayout.LayoutParams(dp(7), dp(7)).apply { rightMargin = dp(6) })
+                    addView(TextView(this@TelefonActivity).apply {
+                        text = t("titulkyAktivni")
+                        textSize = 11f
+                        setTextColor(Color.parseColor("#3CFF6E"))
+                    })
+                }
+                addView(sirkaZnacka, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.END).apply { topMargin = dp(10); rightMargin = dp(16) })
             }
             addView(obalTitulku, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             // nastavení (mini televize, rámečky, posuvníky) jde posouvat, ať se vejde i na menší telefon
@@ -754,6 +867,63 @@ class TelefonActivity : Activity() {
             addView(tip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         setContentView(koren)
+    }
+
+    // ---------------------------------------------------------------- na šířku (jen titulky v telefonu)
+
+    /** Do televize → jen na výšku. Jen telefon → otáčí se podle telefonu. */
+    private fun nastavOtaceni(doTv: Boolean) {
+        val chci = if (doTv) android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                   else android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR
+        runCatching { if (requestedOrientation != chci) requestedOrientation = chci }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        prepniSirku(newConfig.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
+            Propojeni.Vysilac.cilIp == null)
+    }
+
+    /** Na šířku: černá obrazovka jen s titulky přes celou šířku + malá zelená tečka. */
+    private fun prepniSirku(ano: Boolean) {
+        if (!::horniPanel.isInitialized || naSirku == ano) return
+        naSirku = ano
+        horniPanel.visibility = if (ano) View.GONE else View.VISIBLE
+        tip.visibility = if (ano || Propojeni.Vysilac.cilIp != null) View.GONE else View.VISIBLE
+        if (ano) napoveda.visibility = View.GONE
+        sirkaZnacka.visibility = if (ano) View.VISIBLE else View.GONE
+        titulek.setPadding(dp(if (ano) 32 else 20), dp(20), dp(if (ano) 32 else 20), dp(20))
+        // schovat horní a spodní lištu systému (hodiny, tlačítka) – přejetím od kraje se ukážou
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val c = window.insetsController
+                if (ano) {
+                    c?.hide(android.view.WindowInsets.Type.systemBars())
+                    c?.systemBarsBehavior = android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else c?.show(android.view.WindowInsets.Type.systemBars())
+            } else {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = if (ano)
+                    (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY)
+                else View.SYSTEM_UI_FLAG_VISIBLE
+            }
+        }
+    }
+
+    /** Jméno postavy ("Vivian:") v barvě jako ve hře, zbytek bíle. */
+    private fun obarviJmena(text: String, barvy: IntArray?): CharSequence {
+        if (barvy == null || barvy.none { it != 0 }) return text
+        val sb = android.text.SpannableStringBuilder(text)
+        var zacatek = 0
+        text.split("\n").forEachIndexed { i, radek ->
+            val barva = barvy.getOrNull(i) ?: 0
+            val dvojtecka = radek.indexOf(':')
+            if (barva != 0 && dvojtecka in 1..25)
+                sb.setSpan(android.text.style.ForegroundColorSpan(barva), zacatek, zacatek + dvojtecka + 1,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            zacatek += radek.length + 1
+        }
+        return sb
     }
 
     private fun nastavVelikost(t: TextView) {
@@ -780,14 +950,24 @@ class TelefonActivity : Activity() {
             }
             // při potížích ukázat i přesný důvod (např. "Remote Play ukončeno: …")
             val duvod = RemotePlayService.stav
+            val k = if (RemotePlayService.naXboxu) klic + "Xbox" else klic
             stav.text = if (!RemotePlayService.bezi && (duvod.contains("ukončeno", true) || duvod.contains("✘")))
-                t(klic) + "\n" + duvod else t(klic)
+                t(k) + "\n" + duvod else t(k)
             tecka.background = zaobleni(barva)
+            prepnoutKonzoli?.let { b ->
+                val ukazat = RemotePlayService.obeZapnute && RemotePlayUdaje(this@TelefonActivity).sparovano &&
+                    XboxUcet.konzole(this@TelefonActivity) != null
+                b.visibility = if (ukazat) View.VISIBLE else View.GONE
+                b.text = if (RemotePlayService.naXboxu) "⇄ Xbox" else "⇄ PS5"
+            }
 
             // titulky jdou do televize → telefon jen ukazuje stav a ztlumí displej (šetří baterii)
             val doTv = Propojeni.Vysilac.cilIp != null
             if (doTv != posledniDoTv) {
                 posledniDoTv = doTv
+                // do televize → zpátky na výšku (obrazovka s posuvníky); jen telefon → jde otočit
+                if (doTv) prepniSirku(false)
+                nastavOtaceni(doTv)
                 upravy.visibility = if (doTv) View.VISIBLE else View.GONE
                 tip.visibility = if (doTv) View.GONE else View.VISIBLE
                 if (doTv) {
@@ -829,13 +1009,15 @@ class TelefonActivity : Activity() {
                     titulek.text = t("telefonCekam")
                     titulek.setTextColor(Color.parseColor("#555555"))
                 } else {
-                    titulek.text = text
+                    titulek.text = obarviJmena(text, TelefonTitulky.barvy)
                     titulek.setTextColor(Color.WHITE)
                 }
             }
             val n = if (nast.napovedy) TelefonTitulky.napoveda else ""
             napoveda.text = n
-            napoveda.visibility = if (n.isEmpty()) View.GONE else View.VISIBLE
+            napoveda.visibility = if (n.isEmpty() || naSirku) View.GONE else View.VISIBLE
+            // na šířku: tečka zelená = spojeno s PS5, oranžová = připojuji
+            if (naSirku) sirkaTecka.background = zaobleni(Color.parseColor(if (RemotePlayService.bezi) "#3CFF6E" else "#E08A00"))
             ui.postDelayed(this, 100)
         }
     }

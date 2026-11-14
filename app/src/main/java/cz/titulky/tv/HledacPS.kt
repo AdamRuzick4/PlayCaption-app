@@ -26,15 +26,21 @@ object HledacPS {
     private const val VERZE_PS4 = "00020020"
 
     /** Blokující – volat z vlákna na pozadí. */
-    fun hledej(casMs: Int = 3000): List<Konzole> {
+    /**
+     * [primaIp] = známá adresa PS5: dotaz se pošle i přímo na ni. Některé routery / Wi-Fi
+     * (oddělená 2,4 a 5 GHz síť, „mesh“) hromadné hledání nepropustí, přímý dotaz ano.
+     */
+    fun hledej(casMs: Int = 3000, primaIp: String? = null): List<Konzole> {
         val nalezene = linkedMapOf<String, Konzole>()
         DatagramSocket().use { socket ->
             socket.broadcast = true
             socket.soTimeout = 500
             val broadcast = InetAddress.getByName("255.255.255.255")
+            val prima = primaIp?.let { runCatching { InetAddress.getByName(it) }.getOrNull() }
             fun posli(port: Int, verze: String) {
                 val zprava = "SRCH * HTTP/1.1\ndevice-discovery-protocol-version:$verze\n".toByteArray()
-                socket.send(DatagramPacket(zprava, zprava.size, broadcast, port))
+                runCatching { socket.send(DatagramPacket(zprava, zprava.size, broadcast, port)) }
+                if (prima != null) runCatching { socket.send(DatagramPacket(zprava, zprava.size, prima, port)) }
             }
 
             val konec = System.currentTimeMillis() + casMs

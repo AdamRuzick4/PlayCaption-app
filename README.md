@@ -1,5 +1,7 @@
 # PlayCaption
 
+© 2026 Adam Růžička. Licence GNU AGPLv3 (viz níže).
+
 **České (a slovenské) titulky ke hrám na PS5 přímo na televizi s Androidem.**
 
 PlayCaption čte anglické titulky ze hry, překládá je a zobrazuje česky přes obraz z HDMI. Hra běží normálně z PS5 přes HDMI (plné rozlišení, HDR, zvuk). PlayCaption se k PS5 připojuje přes Remote Play jen na pozadí, aby z obrazu mohl přečíst titulky. Na obrazovce z Remote Play nic není.
@@ -25,6 +27,8 @@ PlayCaption stojí na práci jiných open-source projektů:
 
 - Zdrojový kód PlayCaption je v tomto repozitáři. Každá vydaná verze má svůj tag (např. `v0.9-beta`) a odpovídající zdrojový kód je u ní v [Releases](https://github.com/AdamRuzick4/PlayCaption-app/releases).
 - `app/src/main/jniLibs/*/libchiaki-jni.so`: **nezměněná** nativní knihovna z projektu **Chiaki 2.1.1** (© Florian Märkl a přispěvatelé, licence GNU AGPLv3), převzatá z Android sestavení [Chiaki-TV](https://github.com/505e06b2/Chiaki-TV). Zdrojový kód: [Chiaki](https://git.sr.ht/~thestr4ng3r/chiaki) (verze 2.1.1) a [Chiaki-TV](https://github.com/505e06b2/Chiaki-TV).
+- `app/src/main/jniLibs/*/libchiaki-pc.so`: kopie výše uvedené `libchiaki-jni.so` s **jedinou změnou** – závislost `libmediandk.so` je přejmenovaná na `libpcobraz1.so` (stejně dlouhý název v tabulce dynamických řetězců). Používá se jen na telefonu.
+- `app/src/main/jniLibs/*/libpcobraz1.so`: vlastní mezivrstva PlayCaption (AGPLv3) mezi Chiaki a systémovým dekodérem, předává obraz z PS5 přímo do paměti. Zdrojový kód: [`native/pcobraz.c`](native/pcobraz.c).
 - `app/src/main/java/com/metallic/chiaki/lib/Chiaki.kt`: převzato z Chiaki 2.1.1 (AGPLv3), upraveno (odstraněno Parcelable) – popis úprav je v hlavičce souboru.
 
 ## Licence

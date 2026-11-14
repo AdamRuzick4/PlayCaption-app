@@ -46,6 +46,7 @@ class RemotePlayService : Service() {
     private var posledniOtisk: IntArray? = null
     @Volatile private var nesmysluZaSebou = 0
     @Volatile private var nejistychZaSebou = 0
+    @Volatile private var useknutychZaSebou = 0
     // statistika do záznamu (jednou za 30 s): kolikrát se četlo / přeskočilo
     @Volatile private var stCteni = 0
     @Volatile private var stSkipStejne = 0
@@ -54,9 +55,9 @@ class RemotePlayService : Service() {
     private fun statistika(ted: Long) {
         if (stOd == 0L) { stOd = ted; return }
         if (ted - stOd < 30_000) return
-        val zprava = "[za 30 s: čteno $stCteni×, beze změny $stSkipStejne×, čekání na titulek $stSkipVynoreni×, druhý pokus $stKontrast×, nad nápovědou $stNad×, snímků $snimkuCelkem]"
+        val zprava = "[za 30 s: čteno $stCteni×, beze změny $stSkipStejne×, čekání na titulek $stSkipVynoreni×, druhý pokus $stKontrast×, nad nápovědou $stNad×, poškozený obraz $stPoskozeno×, snímků $snimkuCelkem]"
         ui.post { zapis(zprava) }
-        stCteni = 0; stSkipStejne = 0; stSkipVynoreni = 0; stKontrast = 0; stNad = 0; stOd = ted
+        stCteni = 0; stSkipStejne = 0; stSkipVynoreni = 0; stKontrast = 0; stNad = 0; stPoskozeno = 0; stOd = ted
     }
     private var otiskMinulehoSnimku: IntArray? = null
     private var zmenaOd = 0L
@@ -77,7 +78,18 @@ class RemotePlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startAsForeground()
         when (intent?.action) {
+            ACTION_PREPNOUT -> {
+                // tlačítko ⇄ v aplikaci: odpojit a připojit se k druhé konzoli
+                zapis("[přepínám na " + (if (preferXbox(this)) "Xbox" else "PS5") + "]")
+                ui.removeCallbacks(hlidac)
+                zastav("", ukazat = false)
+                naXboxu = preferXbox(this)
+                xboxKontrolaKdy = 0L
+                neuspechu = 0
+                ui.postDelayed(hlidac, 1500)
+            }
             ACTION_STOP -> {
+                if (aktivni) zapis("[ukončeno v aplikaci – tlačítko, Zpět nebo zhasnutý displej]")
                 automat = false
                 aktivni = false
                 ui.removeCallbacks(hlidac)
@@ -89,13 +101,15 @@ class RemotePlayService : Service() {
                 aktivni = true
                 if (posluchac == null) posluchac = Predavani.Posluchac(this) { ui.post { prevzaloJine() } }
                 // spojení "visí" (televize/PS5 spaly, obraz nechodí) → zahodit a připojit znovu
-                if (session != null && System.currentTimeMillis() - posledniSnimekKdy > 8000) {
+                if (pripojeno() && System.currentTimeMillis() - posledniSnimekKdy > 8000) {
                     zapis("[staré spojení bez obrazu – připojuji znovu]")
                     zastav("", ukazat = false)
                 }
                 ui.removeCallbacks(hlidacSpojeni)
                 ui.postDelayed(hlidacSpojeni, 5000)
-                if (session == null) {
+                ui.removeCallbacks(kontrolaObou)
+                ui.post(kontrolaObou)
+                if (!pripojeno()) {
                     ui.removeCallbacks(hlidac)
                     // stisknuto Připojit → druhé zařízení (TV/telefon) se odpojí; chvilku mu dát
                     val prevzit = intent?.getBooleanExtra(EXTRA_PREVZIT, false) == true
@@ -190,6 +204,8 @@ class RemotePlayService : Service() {
     /** Automatický režim: hlídá PS5 a připojuje se sám, dokud uživatel nedá Zastavit. */
     @Volatile private var automat = true
     @Volatile private var hledamPrave = false
+    @Volatile private var hledamOd = 0L
+    private var nenalezenaZaSebou = 0
     /** Kdy jsme poprvé viděli PS5 zapnutou (0 = je vypnutá). */
     private var psZapnutaOd = 0L
     /** Viděli jsme už PS5 vypnutou? Jen pak čekat na její rozběh (jinak připojit hned). */
@@ -240,8 +256,13 @@ class RemotePlayService : Service() {
         override fun run() {
             if (!aktivni || !automat) return
             val ted = System.currentTimeMillis()
-            if (session != null && posledniSnimekKdy > 0 && ted - posledniSnimekKdy > 30_000) {
+            if (pripojeno() && posledniSnimekKdy > 0 && ted - posledniSnimekKdy > 30_000) {
                 zapis("[žádný obraz ${(ted - posledniSnimekKdy) / 1000} s – spojení je mrtvé, připojuji znovu]")
+                // s H.265 nepřišel ani jeden snímek → telefon ho asi neumí, příště H.264
+                if (pouzitHevc && snimkuCelkem == 0) {
+                    prefsObraz.edit().putBoolean("bezHevc", true).apply()
+                    zapis("[H.265 nefunguje – přepínám na H.264]")
+                }
                 zapniUsporu("spojení padá")
                 zastav("", ukazat = false)
                 neuspechu = 0
@@ -253,7 +274,12 @@ class RemotePlayService : Service() {
     }
 
     private fun hlidej() {
-        if (!automat || session != null || hledamPrave) return
+        // pojistka: hledání PS5 se zaseklo (víc než 15 s) → zkusit znovu
+        if (hledamPrave && System.currentTimeMillis() - hledamOd > 15_000) {
+            zapis("[hledání PS5 se zaseklo – zkouším znovu]")
+            hledamPrave = false
+        }
+        if (!automat || pripojeno() || hledamPrave) return
         // překladač "rozehřát" hned (první překlad jinak trvá ~4 s)
         if (!rozehrato) {
             rozehrato = true
@@ -261,25 +287,54 @@ class RemotePlayService : Service() {
         }
         val udaje = RemotePlayUdaje(this)
         val ip = udaje.ipKonzole
-        if (!udaje.sparovano || ip == null) {
+        val xboxId = XboxUcet.konzole(this)?.first
+        val maPs5 = udaje.sparovano && ip != null
+        val chciXbox = preferXbox(this)
+        if (!maPs5 && xboxId == null) {
             stav = "Televize ještě není spárovaná s PS5 (tlačítko 7)."
             ukazJednou(stav)
             return
         }
         hledamPrave = true
+        hledamOd = System.currentTimeMillis()
         // pojistka: zpráva "odpoj se" se mohla ztratit → při každém pokusu poslat znovu
         if (chciPS5) Predavani.posli()
-        bg.post {
+        Thread {
             // PS5 může po restartu routeru dostat jinou IP adresu → najít ji znovu a adresu si opravit
-            val zapnuta = runCatching {
-                val seznam = HledacPS.hledej(2000)
+            val zapnuta = maPs5 && runCatching {
+                val seznam = HledacPS.hledej(2000, primaIp = ip)
                 val ps5 = seznam.firstOrNull { it.ip == ip } ?: seznam.firstOrNull { it.typ == "PS5" }
                 if (ps5 != null && ps5.ip != ip) udaje.ipKonzole = ps5.ip
                 ps5?.stav == "zapnutá"
             }.getOrDefault(false)
+            // PS5 nesvítí → zeptat se Microsoftu, jestli je zapnutý Xbox (ne častěji než 1× za 20 s)
+            val xboxZapnuty: String? =
+                if ((!zapnuta || chciXbox) && xboxId != null && System.currentTimeMillis() - xboxKontrolaKdy > 10_000) {
+                    xboxKontrolaKdy = System.currentTimeMillis()
+                    val k = runCatching { XboxSpojeni.konzole(this).firstOrNull { it.id == xboxId } }
+                        .onFailure { ui.post { zapis("[Xbox: ${it.message}]") } }.getOrNull()
+                    if (k != null && k.stav != xboxPosledniStav) { xboxPosledniStav = k.stav; ui.post { zapis("[Xbox: ${k.stav}]") } }
+                    // probuzení Xboxu: kdy jsme ho poprvé viděli zapnutý po spánku / vypnutí
+                    if (k != null && k.stav != "On") { xboxVidenVypnuty = true; xboxZapnutOd = 0L }
+                    if (k?.stav == "On" && xboxZapnutOd == 0L) xboxZapnutOd = System.currentTimeMillis()
+                    if (k?.stav == "On") xboxId else null
+                } else null
             ui.post {
                 hledamPrave = false
-                if (!automat || session != null) return@post
+                if (!automat || pripojeno()) return@post
+                // Xbox je zapnutý a (PS5 nesvítí, nebo uživatel chce Xbox) → hrát na Xboxu
+                if (xboxZapnuty != null && (!zapnuta || chciXbox)) {
+                    // Xbox se právě probudil → chvíli počkat, ať se zapne hráčův ovladač a hra si ho vezme
+                    // (jinak si ho na chvíli „půjčí“ náš virtuální a hra pak hlásí „reconnect the controller“)
+                    val ceka = ROZBEH_XBOX_MS - (System.currentTimeMillis() - xboxZapnutOd)
+                    if (xboxVidenVypnuty && xboxZapnutOd > 0 && ceka > 0) {
+                        stav = "Xbox se zapíná, chvilku počkám…"
+                        ui.postDelayed(hlidac, minOf(ceka, 10_000L))
+                        return@post
+                    }
+                    xboxVidenVypnuty = false
+                    spustXbox(xboxZapnuty); return@post
+                }
                 val ted = System.currentTimeMillis()
                 if (zapnuta && psZapnutaOd == 0L) psZapnutaOd = ted
                 if (!zapnuta) { psZapnutaOd = 0L; videnaVypnuta = true }
@@ -292,11 +347,20 @@ class RemotePlayService : Service() {
                     videnaVypnuta = false
                     spust()
                 } else {
-                    stav = "Čekám na zapnutí PS5…" // potichu, nic neukazovat přes televizi
-                    ui.postDelayed(hlidac, CEKANI_NA_PS5_MS)
+                    // uživatel chce hrát (Hotovo – hrát), ale PS5 v síti „není vidět“ – některé sítě
+                    // hledání nepropustí, i když PS5 běží → každý 3. pokus se připojit rovnou na známou adresu
+                    nenalezenaZaSebou++
+                    if (maPs5 && chciPS5 && nenalezenaZaSebou % 3 == 0) {
+                        zapis("[PS5 není v síti vidět – zkouším se připojit přímo]")
+                        spust()
+                    } else {
+                        stav = if (maPs5) "Čekám na zapnutí PS5…" else "Čekám na zapnutí Xboxu…" // potichu
+                        ui.postDelayed(hlidac, CEKANI_NA_PS5_MS)
+                    }
                 }
+                if (zapnuta) nenalezenaZaSebou = 0
             }
-        }
+        }.apply { isDaemon = true; name = "hledani-ps5" }.start()
     }
 
     /** Informační hláška – jen když je na televizi vstup HDMI (ne přes Disney+, YouTube…). */
@@ -314,14 +378,15 @@ class RemotePlayService : Service() {
     }
 
     /** Po výpadku spojení počkat (PS5 si potřebuje uklidit) a pak zase hlídat. */
-    private fun znovuPozdeji() {
+    private fun znovuPozdeji(rychle: Boolean = false) {
         if (!automat) { stopSelf(); return }
         posledniHlaska = ""
         ui.removeCallbacks(hlidac)
         // poprvé zkusit brzo, při dalších neúspěších čekat déle (PS5 si musí uklidit staré spojení)
         neuspechu++
         // PS5 po odpojení drží staré spojení ~1–2 min ("already in use") → zkoušet často
-        val cekat = when (neuspechu) { 1 -> 10_000L; 2, 3, 4 -> 15_000L; in 5..8 -> 20_000L; else -> PO_VYPADKU_MS }
+        val cekat = if (rychle && neuspechu <= 30) 5_000L
+            else when (neuspechu) { 1 -> 10_000L; 2, 3, 4 -> 15_000L; in 5..8 -> 20_000L; else -> PO_VYPADKU_MS }
         ui.postDelayed(hlidac, cekat)
     }
 
@@ -336,7 +401,9 @@ class RemotePlayService : Service() {
         }
         posledniHlaska = ""
         snimkuCelkem = 0
+        naXboxu = false
         bezi = true
+        logDelka = -1L; poskozenoKdy = 0L
         stav = "Připojuji k PS5 ($ip)…"
         zapis("[připojuji k PS5 $ip]")
         drzWifi(true)
@@ -383,12 +450,29 @@ class RemotePlayService : Service() {
         // méně dat = méně práce pro procesor televize a stabilnější Wi-Fi
         // telefon bývá na slabší Wi-Fi → méně dat, ať se obraz po cestě neztrácí
         val tok = if (telefon) DATOVY_TOK_TELEFON else if (uspora) DATOVY_TOK_USPORA else DATOVY_TOK
-        val profil = ConnectVideoProfile(sirkaStreamu, vyskaStreamu, 30, tok, Codec.CODEC_H264)
+        // telefon: H.265 (HEVC) – ze stejného množství dat čistší obraz a ostřejší písmo.
+        // Jen když ho telefon umí rozbalit svým čipem; jinak (a vždy na televizi) H.264 jako dřív.
+        val hevc = telefon && !prefsObraz.getBoolean("bezHevc", false) && umiHevc()
+        pouzitHevc = hevc
+        zapis(if (hevc) "[kodek: H.265]" else "[kodek: H.264]")
+        val profil = ConnectVideoProfile(sirkaStreamu, vyskaStreamu, 30, tok, if (hevc) Codec.CODEC_H265 else Codec.CODEC_H264)
         val info = ConnectInfo(ps5 = true, host = ip, registKey = registKey, morning = rpKey, videoProfile = profil)
         try {
             val logSoubor = File(filesDir, "chiaki.log").absolutePath
+            // staré spojení, které se neukončilo (zhasnutí, výpadek Wi-Fi…), by drželo PS5 obsazenou
+            // ("already in use") → před novým připojením všechna stará ukončit
+            session = null
+            ukonciStareSpojeni()
             val s = Session(info, logSoubor, false)
+            synchronized(vsechnaSpojeni) { vsechnaSpojeni += s }
             s.eventCallback = { udalost -> ui.post { onUdalost(udalost) } }
+            // telefon: obraz přímo z dekodéru do paměti (jako u Xboxu) – musí se zapnout před setSurface;
+            // když to dekodér neumí, jde obraz sám dál přes OpenGL (GlSnimac)
+            pametZapsano = false
+            if (telefon && !prefsObraz.getBoolean("bezPameti", false)) {
+                PametObraz.priSnimku = { f -> snimekPamet(f) }
+                if (!PametObraz.nastav(true, sirkaStreamu, vyskaStreamu)) PametObraz.priSnimku = null
+            }
             s.start()
             s.setSurface(plocha)
             session = s
@@ -400,14 +484,67 @@ class RemotePlayService : Service() {
     }
 
     private var dalsiCteni = 0L
+    @Volatile private var pouzitHevc = false
+
+    /** Umí telefon rozbalit H.265 svým čipem (ne pomalu procesorem) v rozlišení streamu? */
+    private fun umiHevc(): Boolean = runCatching {
+        android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS).codecInfos.any { info ->
+            if (info.isEncoder || info.supportedTypes.none { it.equals("video/hevc", true) }) return@any false
+            val jmeno = info.name.lowercase()
+            val hardware = if (Build.VERSION.SDK_INT >= 29) info.isHardwareAccelerated
+                else !(jmeno.startsWith("omx.google.") || jmeno.startsWith("c2.android."))
+            hardware && runCatching {
+                info.getCapabilitiesForType("video/hevc").videoCapabilities.isSizeSupported(sirkaStreamu, vyskaStreamu)
+            }.getOrDefault(false)
+        }
+    }.getOrDefault(false)
 
     private var snimac: GlSnimac? = null
 
     /** Rozhodne, jestli tenhle snímek číst; vrátí volnou čtečku, nebo null. */
+    private var logDelka = -1L
+    private var logKontrola = 0L
+    @Volatile private var poskozenoKdy = 0L
+    @Volatile private var poskozenoOd = 0L
+    @Volatile private var stPoskozeno = 0
+
+    /**
+     * PS5: Chiaki zapisuje do chiaki.log, když po Wi-Fi přišel poškozený snímek ("corrupt frame").
+     * Pak je obraz ~0,5 s kostičkovaný a čtečka by četla nesmysly ("et Davey", "Ineed") →
+     * na 0,7 s přestat číst, než PS5 pošle čistý obraz. (Xbox poškozené snímky nepouští.)
+     */
+    private fun obrazPoskozen(ted: Long): Boolean {
+        if (ted - logKontrola >= 100) {
+            logKontrola = ted
+            runCatching {
+                val f = File(filesDir, "chiaki.log")
+                val delka = f.length()
+                if (logDelka < 0 || delka < logDelka) logDelka = delka
+                else if (delka > logDelka) {
+                    val novy = java.io.RandomAccessFile(f, "r").use { raf ->
+                        raf.seek(maxOf(logDelka, delka - 65536))
+                        val b = ByteArray((delka - raf.filePointer).toInt())
+                        raf.readFully(b)
+                        String(b, Charsets.ISO_8859_1)
+                    }
+                    logDelka = delka
+                    if (novy.contains("corrupt")) {
+                        if (ted - poskozenoKdy >= 700) poskozenoOd = ted // nová série poškození
+                        poskozenoKdy = ted; stPoskozeno++
+                    }
+                }
+            }
+        }
+        // pojistka: při hodně špatné Wi-Fi (poškozeno pořád dokola) nečekat déle než 2 s – radši číst
+        return ted - poskozenoKdy < 700 && ted - poskozenoOd < 2000
+    }
+
     private fun volnaCteckaProSnimek(): Int? {
         snimkuCelkem++
         val ted = System.currentTimeMillis()
         posledniSnimekKdy = ted
+        // PS5: poškozený obraz (kostičky) nečíst
+        if (xbox == null && obrazPoskozen(ted)) return null
         // pojistka: kdyby se čtení někde zaseklo, po 5 s čtečku uvolnit
         // (slabá televize čte i přes 5 s – pak čtečku neuvolňovat hned, jinak by běžela dvě čtení
         //  naráz, televize by se zahltila a systém by aplikaci vypnul → zapnout úsporný režim)
@@ -480,6 +617,8 @@ class RemotePlayService : Service() {
         // (když minule nebylo nic, kontrolovat stejnou obrazovku méně často → čtečka je volná pro nový titulek)
         if (stary != null && zacatek - posledniCteniKdy < 3000 && stejny(stary, otisk)) {
             stSkipStejne++
+            // obraz se nezměnil → minulý titulek (když nějaký byl) pořád visí
+            if (!posledniPrazdne) predchoziVidenKdy = zacatek
             obsazeno[c].set(false)
             return
         }
@@ -590,15 +729,18 @@ class RemotePlayService : Service() {
                 // 3× po sobě čtení přes 2,5 s → slabá televize
                 if (!druhyPokus && !telefon) {
                     pomalaCteni = if (casCteni > 2000) pomalaCteni + 1 else 0
-                    if (pomalaCteni >= 1) zapniUsporu("pomalé čtení (${casCteni} ms)")
+                    if (pomalaCteni >= 1) {
+                        zapniUsporu("pomalé čtení (${casCteni} ms)")
+                        runCatching { getSharedPreferences("uspora", MODE_PRIVATE).edit().putBoolean("rychla", false).apply() }
+                    }
                     // v úsporném režimu, ale čte rychle (10× po sobě pod 1,5 s) → televize není slabá,
                     // příště úsporný režim nezapínat hned od začátku
-                    if (uspora) {
-                        rychlaCteni = if (casCteni < 1500) rychlaCteni + 1 else 0
-                        if (rychlaCteni == 10) runCatching {
-                            getSharedPreferences("uspora", MODE_PRIVATE).edit().putBoolean("slaba", false).apply()
-                            zapis("[televize čte rychle – příště bez úsporného režimu]")
-                        }
+                    rychlaCteni = if (casCteni < 1500) rychlaCteni + 1 else 0
+                    if (rychlaCteni == 10) runCatching {
+                        // televize stíhá → příště bez úsporného režimu a bez upozornění „slabý výkon“
+                        getSharedPreferences("uspora", MODE_PRIVATE).edit()
+                            .putBoolean("slaba", false).putBoolean("varovat", false).putBoolean("rychla", true).apply()
+                        zapis("[televize čte rychle – bez úsporného režimu a upozornění]")
                     }
                 }
                 zapis(ctecka.diagnostika)
@@ -616,6 +758,8 @@ class RemotePlayService : Service() {
                 } else if ((!vypadaJakoVeta(text) && !(titulek.box != null && jeNaMisteDialogu(titulek.box))) || jeStaticky(text)) {
                     // nápověda k ovládání, menu, název úkolu… – nepřekládat
                     zapis("  → přeskočeno (" + (if (jeStaticky(text)) "visí dlouho" else "nevypadá jako věta") + ")")
+                    // mezi dvěma titulky bylo něco jiného ("Jenny…") → další titulek už není pokračování
+                    if (!podobne(text, prectenoPosledne)) predchoziAnglicky = null
                     // na obrazovce už je něco jiného → starý český titulek hned schovat
                     if (prectenoPosledne.isNotEmpty() && !podobne(text, prectenoPosledne)) {
                         prectenoPosledne = ""
@@ -625,6 +769,21 @@ class RemotePlayService : Service() {
                     prazdnychZaSebou = 0
                     val ted = System.currentTimeMillis()
                     if (podobne(text, prectenoPosledne)) {
+                        predchoziVidenKdy = ted // titulek pořád visí
+                        // titulek se přečetl ještě při vynořování bez konce ("…they get her") a teď je celý
+                        // ("…they get here...") → přeložit znovu, ať se nepřekládá useknutá věta
+                        val konce = setOf('.', '!', '?', '…')
+                        val docteno = text.length > prectenoPosledne.length && ted - prvniVidenoKdy < 3000 &&
+                            text.trimEnd().lastOrNull() in konce && prectenoPosledne.trimEnd().lastOrNull() !in konce
+                        if (docteno) {
+                            zapis("  [titulek dočten – překládám celý]")
+                            prectenoPosledne = text
+                            zacatekPrekladu = ted
+                            val barvy = titulek.repliky.indices.map { i ->
+                                titulek.jmenaBoxy.getOrNull(i)?.let { vyrez.barvaTextu(it) } ?: 0
+                            }
+                            prelozAUkaz(titulek.repliky, box, titulek.radku, barvy.toIntArray(), cislo, oprava = true)
+                        } else
                         // stejný text visí na obrazovce moc dlouho → není to replika, ale něco statického
                         if (ted - prvniVidenoKdy > MAX_DELKA_TITULKU_MS) {
                             statickeTexty += klic(text)
@@ -643,6 +802,17 @@ class RemotePlayService : Service() {
                             return@prectiPosledniTitulek
                         }
                         nejistychZaSebou = 0
+                        // titulek se teprve vynořuje a začátek je ještě průhledný ("et Davey rest…" místo
+                        // "Let Davey rest…") → začíná malým písmenem, ale nemůže to být pokračování věty
+                        // → chvilku počkat a přečíst znovu (nejvýš ~0,4 s)
+                        val pokracovaniMozne = predchoziAnglicky != null && ted - predchoziVidenKdy < 2500
+                        if (text.trimStart().firstOrNull()?.isLowerCase() == true && !pokracovaniMozne && useknutychZaSebou < 4) {
+                            useknutychZaSebou++
+                            if (useknutychZaSebou == 1) zapis("  [začátek titulku se teprve vynořuje – čtu znovu]")
+                            posledniOtisk = null
+                            return@prectiPosledniTitulek
+                        }
+                        useknutychZaSebou = 0
                         prectenoPosledne = text
                         prvniVidenoKdy = ted
                         // nový titulek mohl být přečtený ještě při vynořování ("Watch nui here.") →
@@ -669,7 +839,7 @@ class RemotePlayService : Service() {
     private fun zahrejCtecku(predPripojenim: Boolean = false) {
         if (uspora) return // slabá televize: rozehřívání by ji zahltilo
         val c = 0
-        if ((!predPripojenim && session == null) || !obsazeno[c].compareAndSet(false, true)) return
+        if ((!predPripojenim && !pripojeno()) || !obsazeno[c].compareAndSet(false, true)) return
         obsazenoOd[c] = System.currentTimeMillis()
         val bmp = runCatching {
             Bitmap.createBitmap(480, 60, Bitmap.Config.ARGB_8888).also { b ->
@@ -690,7 +860,7 @@ class RemotePlayService : Service() {
                 ctecky[c].prectiPosledniTitulek(bmp,
                     hotovo = {
                         kolikrat++
-                        if (kolikrat < 3 && !uspora && (predPripojenim || session != null)) jednou() else { zahrivani = false; obsazeno[c].set(false) }
+                        if (kolikrat < 3 && !uspora && (predPripojenim || pripojeno())) jednou() else { zahrivani = false; obsazeno[c].set(false) }
                     },
                     chyba = { zahrivani = false; obsazeno[c].set(false) })
             }.onFailure { zahrivani = false; obsazeno[c].set(false) }
@@ -700,7 +870,7 @@ class RemotePlayService : Service() {
 
     private val ohrivac: Runnable = object : Runnable {
         override fun run() {
-            if (session == null) return
+            if (!pripojeno()) return
             prekladac.udrzujSpojeni()
             ui.postDelayed(this, 60_000)
         }
@@ -793,24 +963,54 @@ class RemotePlayService : Service() {
     /** Poslední anglický titulek (pro spojení věty rozdělené hrou na dva titulky). */
     private var predchoziAnglicky: String? = null
     private var predchoziKdy = 0L
+    /** Kdy byl předchozí titulek naposledy vidět na obrazovce (pokračování věty přichází hned po něm). */
+    @Volatile private var predchoziVidenKdy = 0L
 
-    private fun prelozAUkaz(puvodni: List<String>, box: FloatArray?, radku: Int, barvyJmen: IntArray, cislo: Long) {
+    /** Titulek před tím posledním (pro opravu dočteného titulku) a jestli se poslední spojoval. */
+    private var predPred: String? = null
+    private var posledniSpojeno = false
+
+    private fun prelozAUkaz(surove: List<String>, box: FloatArray?, radku: Int, barvyJmen: IntArray, cislo: Long, oprava: Boolean = false) {
         if (!nast.dialogy) return
+        // číslice nalepená před slovem ("3Miss Grimshaw..") je smetí ze čtení
+        val puvodni = surove.map { Regex("^[0-9](?=[A-Z][a-z])").replace(it, "") }
         // Hra (např. RDR2) dělí dlouhou větu na dva titulky: "we need to" → "get that fire lit quick."
         // Druhý kousek začíná malým písmenem → přeložit ho dohromady s předchozím (zatím jen telefon).
         var repliky = puvodni
         val ted = System.currentTimeMillis()
-        val pred = predchoziAnglicky
+        // oprava = stejný titulek dočtený celý ("…they get her" → "…they get here...") – spojit stejně jako napoprvé
+        if (!oprava) predPred = predchoziAnglicky
+        val pred = predPred
         val nova = puvodni.singleOrNull()
-        if (telefon && nova != null && pred != null && ted - predchoziKdy < 8000 &&
-            nova.trimStart().firstOrNull()?.isLowerCase() == true &&
-            pred.trimEnd().lastOrNull() !in listOf('.', '!', '?', '"', '…')
+        // Taky "well we're gonna be..." → "gone." (předchozí končí třemi tečkami) – i v televizi.
+        val predKonec = pred?.trimEnd() ?: ""
+        // čtečka občas přečte "..." jen jako ".." ("Oh yeah.." → "and Mr. Smith, get yourself indoors.")
+        val predTecky = predKonec.endsWith("..") || predKonec.endsWith("…")
+        val novaZacatek = nova?.trimStart() ?: ""
+        val novaPokracuje = novaZacatek.firstOrNull()?.isLowerCase() == true ||
+            novaZacatek.startsWith("...") || novaZacatek.startsWith("…")
+        // jen když pokračování přišlo hned (do 2,5 s od zmizení předchozího titulku) a nic jiného mezi
+        // tím nebylo – jinak by se spojilo s něčím, co k tomu nepatří ("I loved Davey…" + "they may be okay")
+        val casOk = if (oprava) posledniSpojeno else ted - predchoziKdy < 15000 && ted - predchoziVidenKdy < 2500
+        var spojeno = false
+        if (nova != null && pred != null && casOk && novaPokracuje &&
+            (predTecky || predKonec.lastOrNull() !in listOf('.', '!', '?', '"', '…'))
         ) {
-            repliky = listOf(pred.trimEnd() + " " + nova.trim())
-            zapis("  [spojuji rozdělenou větu]")
+            val zacatek = predKonec.trimEnd('.', '…', ' ')
+            val konec = novaZacatek.trimStart('.', '…', ' ')
+            // "Now all of you..." → "all of you..." je jen opakování, ne pokračování → nespojovat
+            val opakovani = zacatek.lowercase().endsWith(konec.trimEnd('.', '…', ' ').lowercase())
+            if (zacatek.isNotEmpty() && konec.isNotEmpty() && !opakovani) {
+                // tři tečky nechat – Google pak ví, že jde o pauzu v řeči ("we've had... well, a bad couple of days")
+                repliky = listOf(if (predTecky) "$zacatek... $konec" else "$zacatek $konec")
+                zapis("  [spojuji rozdělenou větu]")
+                spojeno = true
+            }
         }
+        posledniSpojeno = spojeno
         predchoziAnglicky = puvodni.lastOrNull()
         predchoziKdy = ted
+        predchoziVidenKdy = ted
         // jazyk se mohl v aplikaci změnit
         val cil = nast.jazykNeboCs
         prekladac.nastavJazyk(cil)
@@ -824,7 +1024,14 @@ class RemotePlayService : Service() {
             ukazCesky(cesky, box, radku, barvyJmen)
         }
         // 1) hned rychlý překlad z televize (~0,2 s), 2) pak ho nahradí lepší z Googlu
-        if (RYCHLY_NAHLED && !uspora) prelozVse(repliky, rychle = true) { cesky -> ukazJestli(cesky, dobry = false) }
+        // rychlý překlad ukázat, jen když Google do 0,15 s neodpoví – jinak by titulek "problikl"
+        // (nejdřív horší překlad z telefonu, za 50 ms jiný od Googlu)
+        val zacatekNahledu = System.currentTimeMillis()
+        if (RYCHLY_NAHLED && !uspora) prelozVse(repliky, rychle = true) { cesky ->
+            val zbyva = 150 - (System.currentTimeMillis() - zacatekNahledu)
+            if (zbyva <= 0) ukazJestli(cesky, dobry = false)
+            else ui.postDelayed({ ukazJestli(cesky, dobry = false) }, zbyva)
+        }
         prelozVse(repliky, rychle = false) { cesky ->
             zapis("  → ČESKY (čtení ${casCteni} ms, překlad ${System.currentTimeMillis() - zacatekPrekladu} ms ${prekladac.zdroj}, chyb Googlu ${prekladac.chybGooglu}): " + cesky.replace("\n", " / "))
             ukazJestli(cesky, dobry = true)
@@ -1262,17 +1469,42 @@ class RemotePlayService : Service() {
     private var volbyPrazdneOd = 0L
 
     /** Volá se na vlákně GL u každého snímku, když je rámeček voleb zapnutý. */
-    private fun ctiVolby(gl: GlSnimac) {
+    private fun ctiVolby(gl: GlSnimac) = ctiVolby(gl.sirka, gl.vyska) { x, y, w, h -> gl.precti(x, y, w, h) }
+
+    /** Žlutý rámeček u Xboxu: barvy oblasti ze snímku WebRTC (I420 → RGB). */
+    private fun ctiVolbyXbox(f: org.webrtc.VideoFrame) {
+        val ted = System.currentTimeMillis()
+        if (volbyCtu && ted - volbyOd < 3000) return
+        if (ted < volbyDalsi || pozastaveno) return
+        val i = f.buffer.toI420() ?: return
+        try {
+            ctiVolby(i.width, i.height) { x, y, w, h ->
+                val px = IntArray(w * h)
+                for (r in 0 until h) for (c in 0 until w) {
+                    val yy = (i.dataY.get((y + r) * i.strideY + x + c).toInt() and 255) - 16
+                    val uu = (i.dataU.get((y + r) / 2 * i.strideU + (x + c) / 2).toInt() and 255) - 128
+                    val vv = (i.dataV.get((y + r) / 2 * i.strideV + (x + c) / 2).toInt() and 255) - 128
+                    val rr = ((298 * yy + 409 * vv + 128) shr 8).coerceIn(0, 255)
+                    val gg = ((298 * yy - 100 * uu - 208 * vv + 128) shr 8).coerceIn(0, 255)
+                    val bb = ((298 * yy + 516 * uu + 128) shr 8).coerceIn(0, 255)
+                    px[r * w + c] = (0xFF shl 24) or (rr shl 16) or (gg shl 8) or bb
+                }
+                px
+            }
+        } finally { i.release() }
+    }
+
+    private fun ctiVolby(sirka: Int, vyska: Int, precti: (Int, Int, Int, Int) -> IntArray) {
         val ted = System.currentTimeMillis()
         if (volbyCtu && ted - volbyOd < 3000) return
         if (ted < volbyDalsi || pozastaveno) return
         volbyDalsi = ted + 250
         val o = Volby.oblast
-        val x = (o[0] * gl.sirka).toInt().coerceIn(0, gl.sirka - 16)
-        val y = (o[1] * gl.vyska).toInt().coerceIn(0, gl.vyska - 16)
-        val w = ((o[2] - o[0]) * gl.sirka).toInt().coerceIn(16, gl.sirka - x)
-        val h = ((o[3] - o[1]) * gl.vyska).toInt().coerceIn(16, gl.vyska - y)
-        val barvy = gl.precti(x, y, w, h)
+        val x = (o[0] * sirka).toInt().coerceIn(0, sirka - 16)
+        val y = (o[1] * vyska).toInt().coerceIn(0, vyska - 16)
+        val w = ((o[2] - o[0]) * sirka).toInt().coerceIn(16, sirka - x)
+        val h = ((o[3] - o[1]) * vyska).toInt().coerceIn(16, vyska - y)
+        val barvy = precti(x, y, w, h)
         // stejný obraz jako minule (hráč nic nezměnil) → nečíst znovu
         var otisk = 17L
         var i = 0
@@ -1288,7 +1520,7 @@ class RemotePlayService : Service() {
             volbyCtu = false
             val boxy = radky.map { val r = it.second; android.graphics.Rect(r.left / 2, r.top / 2, r.right / 2, r.bottom / 2) }
             val vybrana = runCatching { zvyraznena(boxy, barvy, w, h) }.getOrDefault(-1)
-            ui.post { zpracujVolby(radky.map { it.first }, vybrana) }
+            ui.post { if (Volby.rezimText) zpracujText(radky.map { it.first }) else zpracujVolby(radky.map { it.first }, vybrana) }
         }, { volbyCtu = false })
     }
 
@@ -1328,6 +1560,46 @@ class RemotePlayService : Service() {
     }
 
     /** Hlavní vlákno: přeložit (jen nové) volby a poslat do televize. */
+    /** Poslední přečtený text v režimu Text (dopis, SMS…). */
+    private var textPosledni = ""
+
+    /**
+     * Režim Text: řádky ve žlutém rámečku spojit do jednoho textu, přeložit jako celek a poslat
+     * na televizi jedním oknem (vedle originálu). Drobné rozdíly ve čtení se nepřekládají znovu.
+     */
+    private fun zpracujText(radky: List<String>) {
+        val text = radky.map { it.trim() }.filter { it.isNotEmpty() }
+            .fold("") { acc, r -> when { acc.isEmpty() -> r; acc.endsWith("-") -> acc.dropLast(1) + r; else -> "$acc $r" } }
+            .replace(Regex("\\s+"), " ").trim()
+        val ted = System.currentTimeMillis()
+        if (text.count { it.isLetter() } < 3 || Ctecka.jeNesmysl(text)) {
+            if (textPosledni.isNotEmpty()) {
+                if (volbyPrazdneOd == 0L) volbyPrazdneOd = ted
+                // text chvíli není vidět → schovat až po 1,5 s (ať okno nebliká)
+                if (ted - volbyPrazdneOd > 1500) {
+                    textPosledni = ""
+                    volbyPosledni = emptyList()
+                    Propojeni.Vysilac.nastavVolby(emptyList(), -1)
+                    zapis("[text zmizel]")
+                }
+            }
+            return
+        }
+        volbyPrazdneOd = 0L
+        if (textPosledni.isNotEmpty() && podobne(text, textPosledni)) return
+        textPosledni = text
+        zapis("[text: ${text.take(120)}]")
+        prekladyVoleb[text]?.let { Propojeni.Vysilac.nastavVolby(listOf(it), Volby.VYBRANA_TEXT); return }
+        if (prekladyVoleb.size > 300) prekladyVoleb.clear()
+        prekladac.nastavJazyk(nast.jazykNeboCs)
+        prekladac.preloz(text, { cesky ->
+            ui.post {
+                prekladyVoleb[text] = cesky
+                if (textPosledni == text) Propojeni.Vysilac.nastavVolby(listOf(cesky), Volby.VYBRANA_TEXT)
+            }
+        }, { e -> zapis("[text: chyba překladu $e]") })
+    }
+
     private fun zpracujVolby(surove: List<String>, vybrana: Int) {
         // očistit: ikony a znaky na začátku ("[F]", "▶", "•"), šum s méně než 2 písmeny
         val volby = surove.map { it.trim().trimStart { ch -> !ch.isLetterOrDigit() && ch != '"' && ch != '„' }.trim() }
@@ -1339,7 +1611,10 @@ class RemotePlayService : Service() {
             volby.indexOf(puvodni)
         } else -1
         val ted = System.currentTimeMillis()
-        if (volby.isEmpty()) {
+        // volby ve hře mají vždy jednu zvýrazněnou (vybranou) – když žádná zvýrazněná není, je to jiný
+        // text (loga na načítací obrazovce, nápisy ve scéně) → neukazovat ("technologie od Amazonu")
+        val zvyraznene = vyb >= 0 || (volby == volbyPosledni && volbyVybrana >= 0)
+        if (volby.isEmpty() || !zvyraznene) {
             if (volbyPosledni.isNotEmpty()) {
                 if (volbyPrazdneOd == 0L) volbyPrazdneOd = ted
                 // volby chvíli nejsou vidět nebo se špatně přečetly → schovat až po 1 s (ať seznam nebliká)
@@ -1428,6 +1703,166 @@ class RemotePlayService : Service() {
         return Vyrez(Bitmap.createBitmap(pixely, w, vyska, Bitmap.Config.ARGB_8888), jas, w, vyska, uArr, vArr, uw, uh)
     }
 
+    // ---------------------------------------------------------------- Xbox
+
+    @Volatile private var xbox: XboxSpojeni.Relace? = null
+    private var xboxKontrolaKdy = 0L
+    private var xboxPosledniStav = ""
+    @Volatile private var xboxVidenVypnuty = false
+    @Volatile private var xboxZapnutOd = 0L
+
+    private fun pripojeno() = session != null || xbox != null
+
+    /**
+     * Jsou zapnuté obě konzole? (jen když jsou obě spárované) – podle toho se v aplikaci
+     * ukazuje tlačítko ⇄. Kontrola každých 20 s: PS5 v domácí síti, Xbox přes Microsoft.
+     */
+    @Volatile private var kontrolujiObe = false
+    @Volatile private var zapornychObe = 0
+    private val kontrolaObou: Runnable = object : Runnable {
+        override fun run() {
+            if (!aktivni) { obeZapnute = false; return }
+            val ctx = this@RemotePlayService
+            val udaje = RemotePlayUdaje(ctx)
+            val xid = XboxUcet.konzole(ctx)?.first
+            if (!udaje.sparovano || xid == null) obeZapnute = false
+            else if (!kontrolujiObe) {
+                kontrolujiObe = true
+                Thread {
+                    val ps = runCatching {
+                        HledacPS.hledej(1500, primaIp = udaje.ipKonzole).any { it.typ == "PS5" && it.stav == "zapnutá" }
+                    }.getOrDefault(false)
+                    val xb = ps && runCatching {
+                        XboxSpojeni.konzole(ctx).any { it.id == xid && it.stav == "On" }
+                    }.getOrDefault(false)
+                    // jedna nepovedená kontrola (Wi-Fi, Microsoft neodpověděl) tlačítko neschová –
+                    // schová se až po 2 záporných kontrolách po sobě, ať neposkakuje
+                    if (ps && xb) { obeZapnute = true; zapornychObe = 0 }
+                    else if (++zapornychObe >= 2) obeZapnute = false
+                    kontrolujiObe = false
+                }.apply { isDaemon = true; name = "obe-konzole" }.start()
+            }
+            ui.postDelayed(this, 20_000)
+        }
+    }
+
+    private fun spustXbox(id: String) {
+        posledniHlaska = ""
+        snimkuCelkem = 0
+        naXboxu = true
+        bezi = false
+        stav = "Navazuji spojení s Xboxem…"
+        zapis("[připojuji k Xboxu]")
+        // Xbox pustí jen jedno spojení – když hraje tohle zařízení, druhé (televize / telefon)
+        // se má odpojit, jinak se navzájem vyhazují (stejně jako u PS5)
+        if (chciPS5) Predavani.posli()
+        drzWifi(true)
+        posledniSnimekKdy = System.currentTimeMillis()
+        ui.post { zahrejCtecku(predPripojenim = true) }
+        runCatching { prekladac.udrzujSpojeni() }
+        var spojeno = false
+        val r = XboxSpojeni.Relace(this, id, priStavu = { st ->
+            ui.post {
+                if (xbox == null) return@post
+                when {
+                    st.startsWith("✔") && !spojeno -> {
+                        spojeno = true
+                        zapis("[PŘIPOJENO k Xboxu]")
+                        bezi = true
+                        pripojenoKdy = System.currentTimeMillis()
+                        posledniSnimekKdy = pripojenoKdy
+                        stav = "Připojeno k Xboxu ✔ – čtu titulky"
+                        neuspechu = 0
+                        ui.postDelayed({ if (xbox != null) runCatching { AutoStart.uspech(this) } }, 60_000)
+                        ui.removeCallbacks(ohrivac)
+                        ui.post(ohrivac)
+                        ui.postDelayed({ zahrejCtecku() }, 1500)
+                    }
+                    st.startsWith("✘") || st.startsWith("Xbox ukončil") -> {
+                        zapis("[Xbox: $st]")
+                        zastav(if (automat) "Spojení s Xboxem se přerušilo – připojím se znovu sám." else st, ukazat = !automat)
+                        znovuPozdeji()
+                    }
+                    !spojeno -> stav = st
+                }
+            }
+        }, priSnimku = { f -> snimekXbox(f) }, bezGpu = telefon)
+        xbox = r
+        r.spust()
+    }
+
+    /** Snímek z Xboxu (vlákno dekodéru WebRTC): vyříznout oblast titulků a číst na vlákně služby. */
+    private fun snimekXbox(f: org.webrtc.VideoFrame) {
+        // žlutý rámeček (volby, menu) – vlastní čtečka, titulky nijak nebrzdí
+        if (Volby.zapnuto) runCatching { ctiVolbyXbox(f) }.onFailure { e -> ui.post { zapis("[CHYBA volby Xbox: ${e.message}]") } }
+        try {
+            val volna = volnaCteckaProSnimek() ?: return
+            obsazeno[volna].set(true)
+            obsazenoOd[volna] = System.currentTimeMillis()
+            val w = f.rotatedWidth.toFloat(); val h = f.rotatedHeight.toFloat()
+            val v = try { vyrezZI420(f) } catch (e: Throwable) { obsazeno[volna].set(false); throw e }
+            bg.post {
+                try { zpracuj(volna, w, h) { v } } catch (e: Throwable) { chybaObrazu(e) }
+            }
+        } catch (e: Throwable) { chybaObrazu(e) }
+    }
+
+    @Volatile private var pametZapsano = false
+
+    /** PS5 na telefonu: snímek přímo z dekodéru (I420) – dál stejně jako u Xboxu. */
+    private fun snimekPamet(f: org.webrtc.VideoFrame) {
+        if (!pametZapsano) {
+            pametZapsano = true
+            val w = f.buffer.width; val h = f.buffer.height; val b = PametObraz.formatBarev()
+            ui.post { zapis("[obraz: přímo do paměti ${w}x$h, barvy $b]") }
+        }
+        snimekXbox(f)
+    }
+
+    /** Oblast titulků ze snímku WebRTC (I420) – stejně jako [vyrizni] u PS5. */
+    private fun vyrezZI420(f: org.webrtc.VideoFrame): Vyrez {
+        val i = f.buffer.toI420() ?: error("toI420")
+        try {
+            val celaSirka = i.width
+            val h = i.height
+            sirkaXbox = celaSirka
+            val r = rucniOblast()
+            val odX: Int; val w: Int; val od: Int; val vyska: Int
+            if (r != null) {
+                odX = (celaSirka * r[0]).toInt().coerceIn(0, celaSirka - 16) and 1.inv()
+                w = ((celaSirka * (r[2] - r[0])).toInt().coerceIn(16, celaSirka - odX)) and 1.inv()
+                od = (h * r[1]).toInt().coerceIn(0, h - 16) and 1.inv()
+                vyska = ((h * (r[3] - r[1])).toInt().coerceIn(16, h - od)) and 1.inv()
+            } else {
+                odX = (celaSirka * (1 - STRED_SIRKA) / 2).toInt() and 1.inv()
+                w = (celaSirka * STRED_SIRKA).toInt() and 1.inv()
+                od = (h * (1 - SPODNI_CAST)).toInt() and 1.inv()
+                vyska = (h - od) and 1.inv()
+            }
+            val jas = ByteArray(w * vyska)
+            val pixely = IntArray(w * vyska)
+            val y = i.dataY.duplicate()
+            for (rr in 0 until vyska) {
+                y.position((od + rr) * i.strideY + odX)
+                y.get(jas, rr * w, w)
+            }
+            for (k in 0 until w * vyska) {
+                val v = jas[k].toInt() and 0xFF
+                pixely[k] = (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+            }
+            val uw = w / 2
+            val uh = vyska / 2
+            val uArr = ByteArray(uw * uh)
+            val vArr = ByteArray(uw * uh)
+            val bu = i.dataU.duplicate(); val bv = i.dataV.duplicate()
+            for (rr in 0 until uh) {
+                bu.position((od / 2 + rr) * i.strideU + odX / 2); bu.get(uArr, rr * uw, uw)
+                bv.position((od / 2 + rr) * i.strideV + odX / 2); bv.get(vArr, rr * uw, uw)
+            }
+            return Vyrez(Bitmap.createBitmap(pixely, w, vyska, Bitmap.Config.ARGB_8888), jas, w, vyska, uArr, vArr, uw, uh)
+        } finally { i.release() }
+    }
+
     private fun onUdalost(udalost: Event) {
         when (udalost) {
             is ConnectedEvent -> {
@@ -1468,6 +1903,9 @@ class RemotePlayService : Service() {
                 // vynucují ukončení / restartují PS5 a nepočkají)
                 val duvod = "${udalost.reasonString ?: ""} ${udalost.reason}".lowercase()
                 val zprava = when {
+                    // déle než ~45 s obsazeno → nejde o staré spojení, PS5 opravdu používá jiné zařízení
+                    "already in use" in duvod && neuspechu >= 6 ->
+                        "PS5 používá jiné zařízení: televize s PlayCaption v režimu „Jen televize“, aplikace PS Remote Play nebo PS Portal. Zavři ho (v televizi přepni na „Titulky z telefonu“) – pak se připojím sám."
                     "already in use" in duvod ->
                         "PS5 ještě drží předchozí spojení – za chvíli se připojím znovu sám, nic nedělej."
                     "session request" in duvod || "ctrl" in duvod ->
@@ -1476,10 +1914,21 @@ class RemotePlayService : Service() {
                         "Spojení s PS5 se přerušilo (např. přepnutí účtu na PS5) – připojím se znovu sám."
                 }
                 zastav(if (automat) zprava else "Remote Play ukončeno: ${udalost.reasonString ?: udalost.reason}", ukazat = !automat)
-                znovuPozdeji()
+                // PS5 drží staré spojení → zkoušet každých 5 s, ať se připojíme hned, jak ho pustí
+                znovuPozdeji(rychle = "already in use" in duvod)
             }
             else -> {}
         }
+    }
+
+    /** Ukončit všechna spojení kromě aktuálního (visící spojení drží PS5 obsazenou). */
+    private fun ukonciStareSpojeni() {
+        val stara = synchronized(vsechnaSpojeni) {
+            vsechnaSpojeni.filter { it !== session }.also { vsechnaSpojeni.removeAll(it) }
+        }
+        if (stara.isEmpty()) return
+        zapis("[ukončuji ${stara.size} staré spojení s PS5]")
+        ukonciVPozadi(stara)
     }
 
     private fun zastav(zprava: String, ukazat: Boolean = true) {
@@ -1493,15 +1942,29 @@ class RemotePlayService : Service() {
             TelefonTitulky.napoveda = ""
             Propojeni.Vysilac.nastavVolby(emptyList(), -1)
         }
+        val xb = xbox
+        xbox = null
+        xb?.zastav()
         val s = session
         session = null
-        if (s != null) {
-            bg.post {
+        if (s != null) synchronized(vsechnaSpojeni) { vsechnaSpojeni.remove(s) }
+        ukonciStareSpojeni()
+        if (s != null) ukonciVPozadi(listOf(s))
+    }
+
+    /**
+     * Ukončení spojení s PS5 může trvat dlouho (knihovna čeká na síť). Dřív běželo na stejném vlákně
+     * jako hledání PS5 → hledání se zaseklo a aplikace „čekala navždy“ (pomohlo jen Vynutit ukončení).
+     * Teď vlastní vlákno – hledání a nové připojení na něj nečekají.
+     */
+    private fun ukonciVPozadi(spojeni: List<Session>) {
+        Thread {
+            for (s in spojeni) {
                 runCatching { s.setSurface(null) }
                 runCatching { s.stop() }
                 runCatching { s.dispose() }
             }
-        }
+        }.apply { isDaemon = true; name = "ps5-konec" }.start()
     }
 
     /** Běží na telefonu → překlad se ukazuje na bílé obrazovce TelefonActivity, ne přes obraz. */
@@ -1519,10 +1982,12 @@ class RemotePlayService : Service() {
     private val sirkaStreamu get() = if (telefon) SIRKA_TELEFON else SIRKA
     private val vyskaStreamu get() = if (telefon) VYSKA_TELEFON else VYSKA
     /** Zvětšení pásu před čtením – u většího obrazu menší, ať čtení trvá stejně dlouho. */
-    private val meritkoCteni get() = MERITKO_CTENI * SIRKA / sirkaStreamu
+    private val meritkoCteni get() = MERITKO_CTENI * SIRKA / (if (xbox != null && sirkaXbox > 0) sirkaXbox else sirkaStreamu)
+    /** Šířka obrazu z Xboxu (720p = 1280) – čte se pak stejně velké písmo jako u PS5, ne větší a pomalejší. */
+    @Volatile private var sirkaXbox = 0
 
     private fun ukaz(text: String, doba: Long = 6000, box: FloatArray? = null, radku: Int = 1, barvyJmen: IntArray? = null) {
-        if (telefon) { TelefonTitulky.nastav(text, doba); return }
+        if (telefon) { TelefonTitulky.nastav(text, doba, barvyJmen); return }
         val i = Intent(this, OverlayService::class.java)
             .setAction(OverlayService.ACTION_SET_TEXT)
             .putExtra(OverlayService.EXTRA_TEXT, text)
@@ -1561,7 +2026,7 @@ class RemotePlayService : Service() {
         ui.removeCallbacks(hlidac)
         posluchac?.zavri()
         posluchac = null
-        if (session != null) zastav("Remote Play zastaveno.")
+        if (pripojeno()) zastav("Remote Play zastaveno.")
         bg.post {
             runCatching { reader?.close() }
             runCatching { snimac?.zavri() }
@@ -1574,16 +2039,38 @@ class RemotePlayService : Service() {
 
     companion object {
         const val ACTION_STOP = "cz.titulky.tv.REMOTE_STOP"
+        const val ACTION_PREPNOUT = "cz.titulky.tv.REMOTE_PREPNOUT"
+
+        /** Volba tlačítkem ⇄: když jsou zapnuté obě konzole, hrát na Xboxu (jinak PS5). */
+        fun preferXbox(context: android.content.Context) =
+            context.getSharedPreferences("konzole", android.content.Context.MODE_PRIVATE).getBoolean("xbox", false)
+
+        /** Přepnout překlad na druhou konzoli (a připojit se k ní, když překlad běží). */
+        fun prepni(context: android.content.Context, naXbox: Boolean) {
+            context.getSharedPreferences("konzole", android.content.Context.MODE_PRIVATE).edit().putBoolean("xbox", naXbox).apply()
+            naXboxu = naXbox
+            if (aktivni) runCatching {
+                context.startForegroundService(Intent(context, RemotePlayService::class.java).setAction(ACTION_PREPNOUT))
+            }
+        }
         /** Jak často kontrolovat, jestli už je PS5 zapnutá. */
         const val CEKANI_NA_PS5_MS = 10_000L
         /** Po výpadku spojení počkat, než si PS5 uklidí (jinak "Server shutting down"). */
         const val PO_VYPADKU_MS = 45_000L
         /** Po zapnutí PS5 počkat, než na ní naběhne Remote Play. */
         const val ROZBEH_PS5_MS = 20_000L
+        /** Po probuzení Xboxu počkat, než se zapne ovladač hráče (jinak hra hlásí „reconnect the controller“). */
+        const val ROZBEH_XBOX_MS = 6_000L
 
         /** Spustí overlay i čtení titulků (z aplikace i po zapnutí televize). */
         /** Extra: spuštěno tlačítkem Připojit → převzít PS5 od druhého zařízení. */
         const val EXTRA_PREVZIT = "prevzit"
+
+        /**
+         * Všechna spojení s PS5, která služba otevřela a ještě neukončila – i z dřívějšího běhu služby
+         * (zůstávají v paměti aplikace, dokud se aplikace úplně nezavře).
+         */
+        private val vsechnaSpojeni = mutableListOf<Session>()
 
         fun spustVse(context: android.content.Context, prevzit: Boolean = false) {
             // na telefonu se přes obraz nekreslí – overlay nespouštět
@@ -1634,6 +2121,10 @@ class RemotePlayService : Service() {
         const val DOLNI_HRANICE = 0.97f
 
         @Volatile var bezi = false
+        /** Zapnuté jsou PS5 i Xbox (→ v aplikaci tlačítko ⇄). */
+        @Volatile var obeZapnute = false
+        /** Právě se hraje / připojuje na Xboxu (jinak PS5). */
+        @Volatile var naXboxu = false
         /** Služba běží (připojená, nebo čeká na PS5). */
         @Volatile var aktivni = false
         /** Překlad vypnutý tlačítkem v aplikaci (spojení s PS5 drží dál → zapnutí je okamžité). */

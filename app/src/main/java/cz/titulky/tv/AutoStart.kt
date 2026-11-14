@@ -20,7 +20,7 @@ class AutoStart : BroadcastReceiver() {
         val duvod = when {
             Rezim.jeTelefon(context) -> "telefon (spouští se jen ručně)"
             !jeZapnuto(context) -> "vypnuto uživatelem"
-            !RemotePlayUdaje(context).sparovano -> "není spárováno"
+            !RemotePlayUdaje(context).sparovano && XboxUcet.konzole(context) == null -> "není spárováno"
             !Settings.canDrawOverlays(context) -> "chybí povolení překrytí"
             // pojistka pro slabé televize: minulá automatická spuštění neskončila úspěšným
             // připojením (televize se přetížila / spadla) → nespouštět dokola, jen ručně z aplikace

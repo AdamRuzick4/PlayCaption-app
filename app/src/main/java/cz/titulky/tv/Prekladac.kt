@@ -36,6 +36,8 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
     )
 
     private var translator: Translator = novyTranslator(cilovy)
+    /** Překladač už je zavřený (služba skončila) – pozdě doběhnuté překlady jen zahodit, nespadnout. */
+    @Volatile private var zavreno = false
 
     /** Přepne cílový jazyk (např. po změně v aplikaci). */
     fun nastavJazyk(kod: String) {
@@ -84,8 +86,10 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
         val vstup = upravSlang(text.trim())
         if (vstup.isEmpty()) { hotovo(""); return }
         cache.get(vstup)?.let { zdroj = "paměť"; hotovo(it); return }
+        // služba mezitím skončila (překladač zavřený) → nic nedělat, hlavně nespadnout
+        if (zavreno) { chyba("překladač zavřený"); return }
 
-        sit.execute {
+        if (runCatching { sit.execute {
             val ted = System.currentTimeMillis()
             var vysledek: String? = null
             var odkud = ""
@@ -115,7 +119,7 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
                     prelozZalozne(vstup, hotovo, chyba)
                 }
             }
-        }
+        } }.isFailure) chyba("překladač zavřený")
     }
 
     /** Jen rychlý překlad přímo v televizi (bez internetu) – na okamžitý náhled. */
@@ -124,9 +128,12 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
         if (vstup.isEmpty()) { hotovo(""); return }
         // když už Google tuhle větu znal, vrátit rovnou dobrý překlad
         cache.get(vstup)?.let { hotovo(it); return }
-        translator.translate(vstup)
-            .addOnSuccessListener { hotovo(it) }
-            .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
+        if (zavreno) { chyba("překladač zavřený"); return }
+        runCatching {
+            translator.translate(vstup)
+                .addOnSuccessListener { hotovo(it) }
+                .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
+        }.onFailure { chyba(it.message ?: "překladač zavřený") }
     }
 
     /** Záloha, když nic online nejde: překladač přímo v televizi. */
@@ -134,9 +141,13 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
         prelozVTelevizi(vstup, hotovo, chyba)
 
     private fun prelozVTelevizi(vstup: String, hotovo: (String) -> Unit, chyba: (String) -> Unit) {
-        translator.translate(vstup)
-            .addOnSuccessListener { cesky -> zdroj = "tv"; hotovo(cesky) }
-            .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
+        // Mezitím mohla služba skončit a překladač zavřít ("Translator has been closed") → nespadnout
+        if (zavreno) { chyba("překladač zavřený"); return }
+        runCatching {
+            translator.translate(vstup)
+                .addOnSuccessListener { cesky -> zdroj = "tv"; hotovo(cesky) }
+                .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
+        }.onFailure { chyba(it.message ?: "překladač zavřený") }
     }
 
     /** Neoficiální adresa Google Překladače (stejnou používají rozšíření do prohlížečů). */
@@ -216,11 +227,13 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
     /** Udržuje spojení s Googlem "teplé", aby první věta po pauze nečekala na připojení. */
     fun udrzujSpojeni() {
         if (System.currentTimeMillis() < googlePauzaDo) return
-        sit.execute { runCatching { google("ok") } }
+        if (zavreno) return
+        runCatching { sit.execute { runCatching { google("ok") } } }
     }
 
     fun zavri() {
-        translator.close()
+        zavreno = true
+        runCatching { translator.close() }
         sit.shutdown()
     }
 

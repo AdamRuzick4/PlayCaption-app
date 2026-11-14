@@ -92,13 +92,20 @@ class PrijemService : Service() {
             if (RemotePlayService.aktivni) runCatching { startService(Intent(this, RemotePlayService::class.java).setAction(RemotePlayService.ACTION_STOP)) }
             AutoStart.nastavZapnuto(this, false)
             prijimac = Propojeni.Prijimac(this,
-                priTitulku = { text, doba, napoveda, rozvrh -> ui.post { zobraz(text, doba, napoveda, rozvrh) } },
+                priTitulku = { text, doba, napoveda, rozvrh, barvy -> ui.post { zobraz(text, doba, napoveda, rozvrh, barvy) } },
                 priVolbach = { volby, vybrana, oblast, ramecek -> ui.post { zobrazVolby(volby, vybrana, oblast, ramecek) } },
                 priOblasti = { oblast, ukazat -> ui.post {
                     posli(Intent(this, OverlayService::class.java)
                         .setAction(OverlayService.ACTION_SET_OBLAST_TITULKU)
                         .putExtra(OverlayService.EXTRA_OBLAST, oblast)
                         .putExtra(OverlayService.EXTRA_RAMECEK, ukazat))
+                } },
+                priKoduSparovani = { kod -> ui.post {
+                    // kód pro telefon velkým písmem přes obraz (3 min); "" = schovat
+                    posli(Intent(this, OverlayService::class.java)
+                        .setAction(OverlayService.ACTION_SET_TEXT)
+                        .putExtra(OverlayService.EXTRA_TEXT, if (kod.isEmpty()) "" else Texty.t(this, "prevzitKodTv").replace("{kod}", kod))
+                        .putExtra(OverlayService.EXTRA_DOBA, if (kod.isEmpty()) 0L else 180_000L))
                 } })
             ui.removeCallbacks(hlidacZamrznuti)
             ui.postDelayed(hlidacZamrznuti, 2000)
@@ -106,7 +113,7 @@ class PrijemService : Service() {
         return START_STICKY
     }
 
-    private fun zobraz(text: String, doba: Long, napoveda: String, rozvrh: FloatArray?) {
+    private fun zobraz(text: String, doba: Long, napoveda: String, rozvrh: FloatArray?, barvy: IntArray? = null) {
         // na televizi je YouTube / hlavní obrazovka → titulky z PS5 neukazovat
         // výjimka: právě upravuješ polohu v telefonu → ukázku s rámečkem ukázat vždy (i na hlavní obrazovce)
         val uprava = rozvrh != null && rozvrh.size >= 5 && rozvrh[4] == 1f
@@ -115,7 +122,9 @@ class PrijemService : Service() {
             .setAction(OverlayService.ACTION_SET_TEXT)
             .putExtra(OverlayService.EXTRA_TEXT, if (vstup) text else "")
             .putExtra(OverlayService.EXTRA_DOBA, if (doba > 0) doba else 6000L)
-            .apply { if (rozvrh != null) putExtra(OverlayService.EXTRA_VLASTNI, rozvrh) })
+            .apply { if (rozvrh != null) putExtra(OverlayService.EXTRA_VLASTNI, rozvrh) }
+            // jméno postavy v barvě jako ve hře
+            .apply { if (barvy != null) putExtra(OverlayService.EXTRA_BARVY_JMEN, barvy) })
         textVidet = vstup && text.isNotEmpty()
         var n = if (vstup && nast.napovedy) napoveda else ""
         if (n.isNotEmpty() && n == napovedaSchovana) n = "" else if (n != napovedaSchovana) napovedaSchovana = ""
@@ -134,7 +143,10 @@ class PrijemService : Service() {
         val vstup = ramecek > 0 || runCatching { popredi.jeVstupTv() }.getOrDefault(true)
         val videt = vstup && volby.isNotEmpty()
         // nové volby (nebo jiná vybraná) → počítat 45 s od teď; při nastavování rámečku nehlídat
-        if (videt) volbyOd = if (ramecek > 0) Long.MAX_VALUE / 2 else System.currentTimeMillis()
+        // text (dopis, SMS) se čte déle → schovat až po 5 minutách beze změny (místo 45 s)
+        if (videt) volbyOd = if (ramecek > 0) Long.MAX_VALUE / 2
+            else if (vybrana == Volby.VYBRANA_TEXT) System.currentTimeMillis() + 255_000L
+            else System.currentTimeMillis()
         volbyVidet = videt
         posli(Intent(this, OverlayService::class.java)
             .setAction(OverlayService.ACTION_SET_VOLBY)

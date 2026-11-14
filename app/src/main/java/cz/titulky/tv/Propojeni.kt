@@ -30,6 +30,11 @@ object Propojeni {
     private const val VOLBY = "PCV1"
     /** Modrý rámeček ruční oblasti titulků: PCO1, ukázat 0/1, oblast (4 čísla). */
     private const val OBLAST = "PCO1"
+    /**
+     * Převzetí spárování s PS5 od televize (telefon nemusí znovu přihlašovat účet ani zadávat PIN z PS5):
+     * PCS1 ZADOST → televize ukáže 4místný kód → PCS1 KOD <kód> → televize pošle údaje (DATA).
+     */
+    private const val SPAROVANI = "PCS1"
 
     /** Jméno televize, jak ho uvidí telefon v seznamu. */
     fun jmenoZarizeni(c: Context): String =
@@ -41,6 +46,25 @@ object Propojeni {
             .createMulticastLock("playcaption-propojeni").apply { setReferenceCounted(false); acquire() }
     }.getOrNull()
 
+    /**
+     * „+ Přidat Android zařízení“ na televizi: kód je vidět v okně na televizi předem (3 min).
+     * Telefon pak jen najde televizi a kód opíše – televize kód sama neukazuje přes obraz.
+     */
+    object Pridani {
+        @Volatile var kod: String? = null
+        @Volatile var platiDo = 0L
+        @Volatile var pokusu = 0
+        /** Telefon (jméno) úspěšně převzal spárování – volá se z vlákna sítě. */
+        @Volatile var hotovo: ((String) -> Unit)? = null
+        fun platny() = kod != null && System.currentTimeMillis() <= platiDo
+        fun novy(): String {
+            val k = (1000..9999).random().toString()
+            kod = k; platiDo = System.currentTimeMillis() + 180_000; pokusu = 0
+            return k
+        }
+        fun zrus() { kod = null; hotovo = null }
+    }
+
     // ================================================================ TELEVIZE (přijímá)
 
     /**
@@ -49,11 +73,13 @@ object Propojeni {
      */
     class Prijimac(
         context: Context,
-        private val priTitulku: (String, Long, String, FloatArray?) -> Unit,
+        private val priTitulku: (String, Long, String, FloatArray?, IntArray?) -> Unit,
         /** (české volby, která je vybraná (-1 = nevíme), oblast voleb, rámeček: 0 = ne, 1 = chvíli, 2 = trvale) */
         private val priVolbach: ((List<String>, Int, FloatArray, Int) -> Unit)? = null,
         /** (oblast titulků, ukázat modrý rámeček) */
-        private val priOblasti: ((FloatArray, Boolean) -> Unit)? = null
+        private val priOblasti: ((FloatArray, Boolean) -> Unit)? = null,
+        /** Kód pro převzetí spárování telefonem – ukázat na televizi ("" = schovat). */
+        private val priKoduSparovani: ((String) -> Unit)? = null
     ) {
         @Volatile private var bezi = true
         private val c = context.applicationContext
@@ -66,6 +92,67 @@ object Propojeni {
             private set
         private var posledniCislo = -1L
         private var posledniCisloVoleb = -1L
+        // převzetí spárování telefonem
+        private var kodSparovani: String? = null
+        private var kodPlatiDo = 0L
+        private var pokusuKodu = 0
+        private var jmenoTelefonu = ""
+
+        private fun odpovez(s: DatagramSocket, p: DatagramPacket, text: String) {
+            val d = text.toByteArray(Charsets.UTF_8)
+            runCatching { s.send(DatagramPacket(d, d.size, p.address, p.port)) }
+        }
+
+        /** Telefon chce převzít spárování s PS5 – jen s kódem, který je vidět na televizi. */
+        private fun sparovani(s: DatagramSocket, p: DatagramPacket, casti: List<String>) {
+            val u = RemotePlayUdaje(c)
+            val ted = System.currentTimeMillis()
+            when (casti.getOrNull(1)) {
+                "ZADOST" -> {
+                    if ((!u.sparovano || u.accountId == null) && XboxUcet.konzole(c) == null) { odpovez(s, p, "$SPAROVANI\tCHYBA\tnesparovano"); return }
+                    jmenoTelefonu = casti.getOrNull(2)?.trim().orEmpty()
+                    // kód už svítí v okně „Přidat Android zařízení“ → jen říct telefonu, ať ho opíše
+                    if (Pridani.platny()) { odpovez(s, p, "$SPAROVANI\tKOD"); return }
+                    // nový kód jen když starý už neplatí (telefon žádost posílá víckrát)
+                    if (kodSparovani == null || ted > kodPlatiDo) {
+                        kodSparovani = (1000..9999).random().toString()
+                        pokusuKodu = 0
+                    }
+                    kodPlatiDo = ted + 180_000
+                    priKoduSparovani?.invoke(kodSparovani!!)
+                    odpovez(s, p, "$SPAROVANI\tKOD")
+                }
+                "KOD" -> {
+                    val zadany = casti.getOrNull(2)?.trim()
+                    fun b64p(b: ByteArray?) = b?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) } ?: ""
+                    // kód z okna „Přidat Android zařízení“
+                    if (Pridani.platny()) {
+                        if (zadany != Pridani.kod) {
+                            Pridani.pokusu++
+                            if (Pridani.pokusu >= 5) Pridani.kod = null
+                            odpovez(s, p, "$SPAROVANI\tCHYBA\tkod")
+                            return
+                        }
+                        val hotovo = Pridani.hotovo
+                        Pridani.kod = null
+                        odpovez(s, p, "$SPAROVANI\tDATA\t${u.accountId}\t${u.ipKonzole}\t${b64p(u.registKey)}\t${b64p(u.rpKey)}" + XboxUcet.proPredani(c))
+                        hotovo?.invoke(jmenoTelefonu.ifBlank { "Android" })
+                        return
+                    }
+                    val kod = kodSparovani
+                    if (kod == null || ted > kodPlatiDo || zadany != kod) {
+                        pokusuKodu++
+                        if (pokusuKodu >= 5) { kodSparovani = null; priKoduSparovani?.invoke("") }
+                        odpovez(s, p, "$SPAROVANI\tCHYBA\tkod")
+                        return
+                    }
+                    kodSparovani = null
+                    priKoduSparovani?.invoke("")
+                    fun b64(b: ByteArray?) = b?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) } ?: ""
+                    odpovez(s, p, "$SPAROVANI\tDATA\t${u.accountId}\t${u.ipKonzole}\t${b64(u.registKey)}\t${b64(u.rpKey)}" + XboxUcet.proPredani(c))
+                }
+            }
+        }
 
         init {
             // ohlašování "jsem tu"
@@ -75,7 +162,9 @@ object Propojeni {
                         s.broadcast = true
                         val kam = InetAddress.getByName("255.255.255.255")
                         while (bezi) {
-                            val data = "$OHLASENI\t${Predavani.mojeId}\t$jmeno".toByteArray()
+                            // 4. pole: je televize spárovaná s PS5? (telefon podle toho schová / nechá přihlašování)
+                            val sp = if (RemotePlayUdaje(c).sparovano) "1" else "0"
+                            val data = "$OHLASENI\t${Predavani.mojeId}\t$jmeno\t$sp".toByteArray()
                             runCatching { s.send(DatagramPacket(data, data.size, kam, PORT_HLEDANI)) }
                             Thread.sleep(2000)
                         }
@@ -97,6 +186,10 @@ object Propojeni {
                         val p = DatagramPacket(buf, buf.size)
                         try { s.receive(p) } catch (e: SocketTimeoutException) { continue }
                         val casti = String(p.data, 0, p.length, Charsets.UTF_8).split("\t")
+                        if (casti.size >= 2 && casti[0] == SPAROVANI) {
+                            runCatching { sparovani(s, p, casti) }
+                            continue
+                        }
                         if (casti.size >= 6 && casti[0] == OBLAST) {
                             posledniZprava = System.currentTimeMillis()
                             runCatching {
@@ -127,11 +220,15 @@ object Propojeni {
                         val doba = casti[2].toLongOrNull() ?: 6000L
                         // vlastní poloha a velikost titulků z telefonu (střed X, spodní hrana Y, šířka, velikost písma,
                         // 1 = právě se upravuje → ukázat rámeček)
-                        val rozvrh = if (casti.size >= 9) runCatching {
+                        val rozvrh = if (casti.size >= 9 && !casti[5].startsWith("B:")) runCatching {
                             val uprava = if (casti.getOrNull(9)?.trim() == "1") 1f else 0f
                             floatArrayOf(casti[5].toFloat(), casti[6].toFloat(), casti[7].toFloat(), casti[8].toFloat(), uprava)
                         }.getOrNull() else null
-                        priTitulku(odEscapuj(casti[3]), doba, odEscapuj(casti[4]), rozvrh)
+                        // barvy jmen postav ("B:-16711936,0") – posílá telefon od verze 0.17
+                        val barvy = casti.drop(5).firstOrNull { it.startsWith("B:") }?.let { b ->
+                            runCatching { b.removePrefix("B:").trim().split(",").map { it.trim().toInt() }.toIntArray() }.getOrNull()
+                        }
+                        priTitulku(odEscapuj(casti[3]), doba, odEscapuj(casti[4]), rozvrh, barvy)
                     }
                 }
                 runCatching { socket?.close() }
@@ -147,7 +244,33 @@ object Propojeni {
 
     // ================================================================ TELEFON (hledá a posílá)
 
-    data class Televize(val id: String, val jmeno: String, val ip: String)
+    /** [sparovano]: televize sama je spárovaná s PS5 (null = starší verze, neví se). */
+    data class Televize(val id: String, val jmeno: String, val ip: String, val sparovano: Boolean? = null)
+
+    /**
+     * Telefon → televize: zpráva převzetí spárování a čekání na odpověď (víc pokusů, Wi-Fi ztrácí pakety).
+     * Vrací části odpovědi ("KOD", "DATA", …, "CHYBA", důvod) nebo null, když televize neodpověděla.
+     */
+    fun sparovaniDotaz(tv: Televize, zprava: String): List<String>? {
+        runCatching {
+            DatagramSocket().use { s ->
+                s.soTimeout = 1500
+                val data = "$SPAROVANI\t$zprava".toByteArray(Charsets.UTF_8)
+                val kam = InetAddress.getByName(tv.ip)
+                repeat(4) {
+                    s.send(DatagramPacket(data, data.size, kam, PORT_TITULKY))
+                    val buf = ByteArray(16384) // DATA s Xboxem je delší (přihlašovací token)
+                    val p = DatagramPacket(buf, buf.size)
+                    try {
+                        s.receive(p)
+                        val casti = String(p.data, 0, p.length, Charsets.UTF_8).split("\t")
+                        if (casti.size >= 2 && casti[0] == SPAROVANI) return casti.drop(1)
+                    } catch (e: SocketTimeoutException) { /* zkusit znovu */ }
+                }
+            }
+        }
+        return null
+    }
 
     /** Telefon: po dobu [doba] ms poslouchá ohlášení televizí a vrátí, co našel. */
     fun hledej(context: Context, doba: Long = 3500, hotovo: (List<Televize>) -> Unit) {
@@ -169,7 +292,8 @@ object Propojeni {
                         val casti = String(p.data, 0, p.length, Charsets.UTF_8).split("\t")
                         if (casti.size >= 3 && casti[0] == OHLASENI && casti[1] != Predavani.mojeId) {
                             val ip = p.address.hostAddress ?: continue
-                            nalez[casti[1]] = Televize(casti[1], casti[2], ip)
+                            nalez[casti[1]] = Televize(casti[1], casti[2], ip,
+                                when (casti.getOrNull(3)?.trim()) { "1" -> true; "0" -> false; else -> null })
                         }
                     }
                 }
@@ -193,6 +317,8 @@ object Propojeni {
         @Volatile private var text = ""
         @Volatile private var doba = 0L
         @Volatile private var napoveda = ""
+        /** Barvy jmen postav (u každého řádku, 0 = bez barvy). */
+        @Volatile private var barvy: IntArray? = null
         @Volatile private var bezi = false
         private val zamek = Any()
         /** Poloha a velikost titulků na televizi: střed X, spodní hrana Y, šířka (0..1), velikost písma (1 = normální). */
@@ -282,10 +408,10 @@ object Propojeni {
         }
 
         /** Nový titulek / nápověda z telefonu. */
-        fun zmena(t: String, d: Long, n: String) {
+        fun zmena(t: String, d: Long, n: String, b: IntArray? = null) {
             synchronized(zamek) {
-                if (t == text && n == napoveda) return
-                text = t; doba = d; napoveda = n
+                if (t == text && n == napoveda && b.contentEquals(barvy)) return
+                text = t; doba = d; napoveda = n; barvy = b
                 cislo++
             }
             posliTed()
@@ -295,7 +421,10 @@ object Propojeni {
             val r = rozvrh
             val uprava = if (System.currentTimeMillis() < upravaDo) 1 else 0
             val konec = if (r != null && r.size == 4) "\t${r[0]}\t${r[1]}\t${r[2]}\t${r[3]}\t$uprava" else ""
-            "$TITULEK\t$cislo\t$doba\t${escapuj(text)}\t${escapuj(napoveda)}$konec".toByteArray(Charsets.UTF_8)
+            // barvy jmen až úplně na konec se značkou "B:" – starší televize je přeskočí
+            val b = barvy
+            val sBarvami = if (b != null && b.any { it != 0 }) "\tB:" + b.joinToString(",") else ""
+            "$TITULEK\t$cislo\t$doba\t${escapuj(text)}\t${escapuj(napoveda)}$konec$sBarvami".toByteArray(Charsets.UTF_8)
         }
 
         private fun posliTed() = posliData(zprava())

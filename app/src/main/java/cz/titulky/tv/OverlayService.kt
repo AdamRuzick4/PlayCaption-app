@@ -35,16 +35,24 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startAsForeground()
-        // bez povolení "Zobrazovat přes jiné aplikace" by addView aplikaci shodil (BadTokenException)
-        // → nespadnout, jen titulky neukazovat; aplikace o povolení požádá na hlavní obrazovce
-        if (!android.provider.Settings.canDrawOverlays(this) || runCatching { addOverlay() }.isFailure) {
-            runCatching {
-                java.io.File(filesDir, "titulky.log").appendText(
-                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date()) +
-                        " [CHYBÍ povolení „Zobrazovat přes jiné aplikace“ – titulky nejde ukázat]\n")
-            }
+        zkusOkna(0)
+    }
+
+    /**
+     * Vytvořit okna s titulky. Bez povolení "Zobrazovat přes jiné aplikace" by addView aplikaci
+     * shodil (BadTokenException) → nespadnout, jen titulky neukazovat.
+     */
+    private fun zkusOkna(@Suppress("UNUSED_PARAMETER") pokus: Int) {
+        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        if (android.provider.Settings.canDrawOverlays(this) && runCatching { addOverlay() }.isSuccess) return
+        zapisLog("[CHYBÍ povolení „Zobrazovat přes jiné aplikace“ – titulky nejde ukázat]")
+    }
+
+    private fun zapisLog(s: String) {
+        runCatching {
+            java.io.File(filesDir, "titulky.log").appendText(
+                java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date()) + " " + s + "\n")
         }
     }
 

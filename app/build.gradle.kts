@@ -11,8 +11,8 @@ android {
         applicationId = "cz.titulky.tv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.10"
+        versionCode = 31
+        versionName = "0.20"
         // jen procesory, které mají televize (ARM) – aplikace je tak o třetinu menší
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
@@ -41,4 +41,6 @@ dependencies {
     implementation("com.google.mlkit:language-id:17.0.6")
     // QR kód pro přihlášení k PSN přes telefon
     implementation("com.google.zxing:core:3.5.3")
+    // Xbox: příjem obrazu z konzole (WebRTC, Google libwebrtc v balíčku od Stream – Apache 2.0)
+    implementation("io.getstream:stream-webrtc-android:1.3.7")
 }

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="cs"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PlayCaption – ukázka lektora</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#14151c;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:22px 16px 40px}
+.brand{font-style:italic;font-weight:800;font-size:24px}.brand b{color:#e5091a}
+h1{font-size:24px;margin:10px 0 4px}
+.lead{color:#b9bccb;margin:0 0 16px;font-size:15px;line-height:1.4}
+.seg{display:flex;background:#2a2c38;border-radius:999px;padding:3px;margin-bottom:16px}
+.seg button{flex:1;border:0;border-radius:999px;padding:10px;font-weight:700;font-size:14px;background:none;color:#ccc}
+.seg button.on{background:#14A23C;color:#fff}
+.line{display:flex;gap:12px;align-items:center;background:#1f2130;border-radius:16px;padding:12px 14px;margin-bottom:10px;border:2px solid transparent}
+.line.hraje{border-color:#3CFF6E}
+.ava{flex:none;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:22px}
+.txt{flex:1}
+.kdo{font-weight:800;font-size:14px}
+.kdo span{font-weight:500;color:#9a9db0;font-size:12px;margin-left:6px}
+.veta{font-size:15px;line-height:1.35;color:#e3e5ee;margin-top:2px}
+.play{flex:none;border:0;border-radius:999px;background:#e5091a;color:#fff;font-weight:800;width:44px;height:44px;font-size:18px}
+.big{width:100%;border:0;border-radius:999px;background:#e5091a;color:#fff;font-weight:800;font-size:17px;padding:14px;margin:6px 0 14px}
+.note{font-size:13px;color:#9a9db0;line-height:1.45;margin-top:12px}
+.warn{background:#3a2a10;border:1px solid #FFC24B;color:#FFD98a;border-radius:12px;padding:10px 12px;font-size:13px;margin-bottom:12px;display:none}
+</style></head><body><div class="wrap">
+<div class="brand">Play<b>Caption</b></div>
+<h1>🎧 Ukázka: lektor v telefonu</h1>
+<p class="lead">Takhle by český hlas četl přeložené titulky. Pusť si to se sluchátky. Každá postava má jinou výšku a rychlost hlasu.</p>
+
+<div class="warn" id="warn"></div>
+
+<div class="seg">
+  <button id="mJeden">Jeden lektor</button>
+  <button id="mPostavy" class="on">Hlas podle postavy</button>
+</div>
+
+<button class="big" id="vse">▶ Přehrát celou scénu</button>
+<div id="seznam"></div>
+
+<p class="note">Hlas je zdarma český hlas z tvého telefonu nebo počítače, stejný jako by použila aplikace. Rozdíly mezi postavami dělá jen posun výšky a rychlosti. Na telefonu Android zní obvykle líp než na počítači.<br>Scéna je vymyšlená jen pro ukázku.</p>
+</div>
+<script>
+const POSTAVY = {
+  "Velitel":   {ava:"🪖", barva:"#4FB3FF", popis:"hluboký muž", pitch:0.55, rate:0.9, muz:true},
+  "Lovkyně":   {ava:"🏹", barva:"#FF8FC8", popis:"mladá žena", pitch:1.45, rate:1.08, muz:false},
+  "Kovář":     {ava:"🔨", barva:"#FFC24B", popis:"starší muž", pitch:0.8, rate:0.82, muz:true},
+  "Kluk":      {ava:"🧒", barva:"#3CFF6E", popis:"dítě", pitch:1.8, rate:1.15, muz:false}
+};
+const SCENA = [
+  ["Velitel", "Brána padla. Máme do svítání, pak se vrátí."],
+  ["Lovkyně", "Stopy vedou k řece. Jestli pospíšíme, chytíme je u brodu."],
+  ["Kovář", "Meče jsou hotové, ale na tohle jich bude málo."],
+  ["Kluk", "Můžu jít s vámi? Znám zkratku přes les!"],
+  ["Velitel", "Ne. Zůstaneš tady a postaráš se o koně."]
+];
+let rezim = "postavy", hlasy = [], cesky = null, ceskeVsechny = [], hraje = -1;
+const synth = window.speechSynthesis;
+
+function nactiHlasy(){
+  if(!synth) return;
+  hlasy = synth.getVoices();
+  ceskeVsechny = hlasy.filter(v=>/^cs/i.test(v.lang));
+  // nejlepší: přirozené hlasy (Edge: Antonín = muž, Vlasta = žena)
+  ceskeVsechny.sort((a,b)=>(/natural|online/i.test(b.name)?1:0)-(/natural|online/i.test(a.name)?1:0));
+  cesky = ceskeVsechny[0] || null;
+  const w = document.getElementById("warn");
+  if(!synth){ w.style.display="block"; w.textContent="Tenhle prohlížeč neumí číst nahlas. Zkus Chrome v telefonu."; }
+  else if(hlasy.length && !cesky){ w.style.display="block"; w.textContent="V tomhle zařízení chybí český hlas – čte se jiným jazykem. Na Androidu: Nastavení → Jazyk → Převod textu na řeč → Google → nainstalovat češtinu."; }
+  else w.style.display="none";
+}
+if(synth){ nactiHlasy(); synth.onvoiceschanged = nactiHlasy; }
+else nactiHlasy();
+
+function vykresli(){
+  const s = document.getElementById("seznam"); s.innerHTML="";
+  SCENA.forEach(([kdo,veta],i)=>{
+    const p = POSTAVY[kdo];
+    const d = document.createElement("div"); d.className="line"+(i===hraje?" hraje":"");
+    d.innerHTML = `<div class="ava" style="background:${p.barva}33;border:2px solid ${p.barva}">${p.ava}</div>
+      <div class="txt"><div class="kdo" style="color:${p.barva}">${kdo}<span>${rezim==="postavy"?p.popis:"lektor"}</span></div><div class="veta">${veta}</div></div>
+      <button class="play" aria-label="Přehrát">▶</button>`;
+    d.querySelector(".play").onclick = ()=>{ stop(); rekni(i, false); };
+    s.appendChild(d);
+  });
+}
+function stop(){ if(synth) synth.cancel(); hraje=-1; vykresli(); }
+function rekni(i, dalsi){
+  if(!synth) return;
+  const [kdo,veta] = SCENA[i], p = POSTAVY[kdo];
+  const u = new SpeechSynthesisUtterance(veta);
+  u.lang = "cs-CZ"; if(cesky) u.voice = cesky;
+  if(rezim==="postavy"){
+    const muz = ceskeVsechny.find(v=>/anton|jakub|male|muž/i.test(v.name) && !/female/i.test(v.name));
+    const zena = ceskeVsechny.find(v=>/vlasta|zuzana|female|žena/i.test(v.name));
+    const h = p.muz ? muz : zena; if(h) u.voice = h;
+    // s mužským/ženským hlasem stačí menší posun výšky
+    const posun = h ? (p.pitch-1)*0.5+1 : p.pitch;
+    u.pitch = posun; u.rate = p.rate;
+  } else { u.pitch = 1; u.rate = 1; }
+  u.onstart = ()=>{ hraje=i; vykresli(); };
+  u.onend = ()=>{ hraje=-1; vykresli(); if(dalsi && i+1<SCENA.length) setTimeout(()=>rekni(i+1,true), 350); };
+  try { synth.speak(u); } catch(e){}
+}
+document.getElementById("vse").onclick = ()=>{ stop(); rekni(0,true); };
+const mJ=document.getElementById("mJeden"), mP=document.getElementById("mPostavy");
+mJ.onclick=()=>{ rezim="jeden"; mJ.className="on"; mP.className=""; stop(); };
+mP.onclick=()=>{ rezim="postavy"; mP.className="on"; mJ.className=""; stop(); };
+vykresli();
+</script>
+</body></html>

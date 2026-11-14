@@ -18,6 +18,11 @@ object Pady {
                 val stopa = chyba.stackTraceToString().lines().take(18).joinToString("\n")
                 soubor.writeText("$cas vlákno ${vlakno.name}\n$stopa\n")
             }
+            // zapamatovat, že aplikace spadla – při dalším otevření se v režimu „Jen televize“ nepřipojí sama
+            runCatching {
+                context.applicationContext.getSharedPreferences("uspora", Context.MODE_PRIVATE)
+                    .edit().putBoolean("padlo", true).commit()
+            }
             puvodni?.uncaughtException(vlakno, chyba)
         }
     }

@@ -117,7 +117,14 @@ class Ctecka {
         /** Výšky (v pixelech tohoto obrázku), kde se dřív ukazovala nápověda k ovládání. */
         pasmaNapovedy: List<IntRange> = emptyList()
     ) {
-        recognizer.process(InputImage.fromBitmap(obraz, 0))
+        // čtečka odmítne obrázek menší než 32 px ("InputImage width and height should be at least 32")
+        // → doplnit černou vpravo/dole (souřadnice textu se tím nemění)
+        val vstup = if (obraz.width >= 32 && obraz.height >= 32) obraz else
+            Bitmap.createBitmap(maxOf(32, obraz.width), maxOf(32, obraz.height), Bitmap.Config.ARGB_8888).also { b ->
+                b.eraseColor(android.graphics.Color.BLACK)
+                android.graphics.Canvas(b).drawBitmap(obraz, 0f, 0f, null)
+            }
+        recognizer.process(InputImage.fromBitmap(vstup, 0))
             .addOnSuccessListener { vysledek ->
                 nesmysl = false
                 val kusy = vysledek.textBlocks

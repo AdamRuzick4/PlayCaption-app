@@ -1,0 +1,80 @@
+# PlayCaption – předání práce pro nového Clauda (stav 14. 11. 2026, 10:30)
+
+Tento text vlož do nové konverzace s Claudem jako první zprávu. Popisuje projekt, pravidla a přesně, kde jsme skončili.
+
+## Kdo jsem a jak se mnou pracovat
+- Jsem Adam, **neprogramátor**. Chci jednoduché české pokyny krok za krokem.
+- **Vždy mi dej celý příkaz do terminálu** (PowerShell v Android Studiu), příkazy neznám.
+- Odpovídej **česky**.
+
+## Projekt
+- **PlayCaption** (balíček `cz.titulky.tv`): české titulky ke hrám na konzoli. Obraz z konzole přes vzdálené hraní → čtení titulků (Google ML Kit) → překlad (Google, záloha offline ML Kit) → zobrazení na televizi (Android TV) nebo na telefonu.
+- **PS5** přes Chiaki (`libchiaki-jni.so`, AGPLv3), **Xbox** přes WebRTC (`io.getstream:stream-webrtc-android:1.3.7`), přihlášení k Xboxu jako u PS5 (kód / klíč).
+- Licence aplikace AGPLv3, GitHub: github.com/AdamRuzick4/PlayCaption-app
+- Projekt na PC: `C:\Users\anita\OneDrive\Plocha\titulky\test1\NextUpdate`
+- Kód: `app\src\main\java\cz\titulky\tv\` (hlavně `RemotePlayService.kt`, `XboxSpojeni.kt`, `XboxUcet.kt`, `MainActivity.kt`, `TelefonActivity.kt`, `Ctecka.kt`, `Texty.kt`, `Zaznam.kt`, `PametObraz.kt`)
+- Zálohy: `NextUpdate - 018`, **`NextUpdate - 019`** (stabilní 0.19), `NextUpdate_015`.
+
+## Bezpečnostní pravidla (nikdy neporušit)
+- Neodinstalovávat aplikaci z TV ani telefonu (ztratí se spárování) – vždy jen **Aktualizovat** / `adb install -r`.
+- Hesla ke keystore nikomu neposílat. Záloha `playcaption.jks`. Při podepisování vždy **„Choose existing…“**, nikdy „Create new…“.
+- V Android Studiu neklikat na AGP Upgrade Assistant / Migrate / Exclude folders, ani na „Compare & pull request“.
+- Nesdílet PSN přesměrovací adresu ani auth kód. Můj e-mail je soukromý.
+- Na Xiaomi dialogu o pádu neklikat „Hlášení“.
+- GitHub: 2FA zapnout přímo na github.com (do 28. 12. 2026), ne přes odkaz z e-mailu.
+
+## Jak sestavuju a instaluju
+- **Telefon (podepsaná):** Build → Generate Signed App Bundle / APK… → APK → hesla → release → Create. Výsledek `app\release\app-release.apk`.
+- **Televize (debug):** Build → Generate App Bundles or APKs → Generate APKs, pak v terminálu:
+```
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" install -r "C:\Users\anita\OneDrive\Plocha\titulky\test1\NextUpdate\app\build\outputs\apk\debug\app-debug.apk"
+```
+- Záznam z aplikace: podržet logo → Vybrat vše → Sdílet.
+
+## Verze
+- **0.19** (versionCode 30) – stabilní, hotová: Xbox (spárování, ⇄ přepínání konzolí, oprava odpojování: virtuální ovladač přidat→odebrat + každých 5 s žádost o klíčový snímek, čekání 6 s po probuzení Xboxu), telefon i TV.
+- **0.20** (versionCode 31) – rozpracovaná, testovaná na telefonu s PS5:
+  1. **PS5 na telefonu: obraz přímo do paměti** – vlastní malá knihovna `libpcobraz1.so` (zdroják `NextUpdate\native\pcobraz.c`) sedí mezi Chiaki a systémovým dekodérem; `libchiaki-pc.so` = původní Chiaki s jediným změněným závislým jménem (`libmediandk.so` → `libpcobraz1.so`). Načítá se jen na telefonu (`Chiaki.kt` + `Rezim.ulozeny()`), TV dál používá původní `libchiaki-jni.so`. Čtení zrychlilo z ~80 ms na 20–40 ms. V záznamu řádek „obraz: přímo do paměti“.
+  2. **H.265 (HEVC) pro PS5 na telefonu** – automaticky, jen když to telefon umí (`umiHevc()`), jinak H.264; když s H.265 nepřijde obraz, příště sám H.264 (pref `bezHevc`). V záznamu „kodek: H.265“.
+  3. **Spojování rozdělených vět** – jen když druhá část přijde do 2,5 s od zmizení první a mezi tím nebylo nic jiného; „..“ bere jako „...“; tři tečky ve spojené větě zůstávají; useknutý titulek („get her“) se po dočtení přeloží znovu; číslice nalepená před slovem („3Miss“) se zahodí.
+  4. **Bez přeblikávání** – rychlý offline překlad se ukáže jen když Google neodpoví do 0,15 s.
+  5. **Záznam** – 120 řádků titulky.log, z chiaki.log se opakované „re-sending“ jen spočítají.
+  6. **Doplnění malého výřezu** na 32 px (`Ctecka.kt`) – opravuje chybu „InputImage width and height should be at least 32“.
+  7. **Useknutý začátek titulku** („et Davey“ místo „Let Davey“) – když titulek začíná malým písmenem a nemůže jít o pokračování, přečte se znovu (max ~4×).
+  8. **Přeskakování poškozeného obrazu u PS5** – sleduje chiaki.log, při „corrupt frame“ 0,7 s nečte (max 2 s v kuse). Jen PS5, Xbox ne. V záznamu „poškozený obraz N×“.
+- Poslední odeslaná APK do telefonu: **0.20e** (obsahuje body 1–5). Body 6–8 jsou v kódu na PC, **ještě nesestavené**.
+
+## KDE JSME SKONČILI (udělat jako první)
+Všechny úpravy níže JSOU v kódu na PC a ověřené (po zápisu staženo a porovnáno). Poslední APK v telefonu je 0.20e; vše ostatní ještě NESESTAVENO.
+Úpravy od 0.20e:
+  6. Doplnění malého výřezu na 32 px (`Ctecka.kt`).
+  7. Useknutý začátek titulku („et Davey“) → přečíst znovu (max ~4×).
+  8. Přeskakování poškozeného obrazu u PS5 (chiaki.log „corrupt“ → 0,7 s nečíst, max 2 s).
+  9. Televize – návod „Titulky z telefonu“: Krok 2 „Jen poprvé: Vyhledat televizi (v telefonu se nepřihlašuj)“, Krok 3 „Zmáčkni Hotovo – hrát a telefon polož“ (`Texty.kt` ngKrok2/ngKrok3 + delší text). HOTOVO A SCHVÁLENO: Krok 2 „Spáruj telefon (viz níže ↓)“ se žlutým rámečkem + pod kroky rámeček „Jak spárovat telefon“ s cestami ① přihlášená TV → „+ Přidat Android zařízení“ + „Vyhledat televizi“, ② přihlášení přímo v telefonu.
+  10. Telefon – po kliknutí „Připojit“ (PS5 i Xbox) nahoře rámeček „📺 Máš PlayCaption už přihlášenou v televizi?“ + tlačítka „📺 Vyhledat televizi“ a „Nemám televizi – přihlásit se tady ↓“ (sjede k přihlášení). Adam schválil náhled.
+  11. Hlášení „PS5 používá jiné zařízení…“ když je PS5 obsazená déle než ~45 s.
+  12. Zpět (tlačítko/gesto) na obrazovce s titulky aplikaci jen schová do pozadí (dřív ji zavřel = odpojení).
+  13. Hlavní obrazovka na telefonu/tabletu nenechá zhasnout displej, když běží spojení (tablet testera usnul → odpojení).
+  14. Záznam: nahoře sekce „spojení (připojení / odpojení)“ – posledních 30 událostí; zapisuje se i „ukončeno v aplikaci“.
+Pojistka: zhasnutý displej mimo aplikaci → za 1 min odpojení (záměr, aby PS5 mohla převzít TV). Adam zatím nerozhodl, jestli prodloužit.
+
+ZMENY.md a README.md (věta o libchiaki-pc.so a libpcobraz1.so) pro 0.20 jsou zapsané v PC.
+DALŠÍ KROK: Adam chtěl „poslední build a podepsat“:
+  1. Build → Generate Signed App Bundle / APK → APK → release (Choose existing…) → Create.
+  2. Build → Generate APKs (debug) → adb install -r do TV (příkaz výš).
+  3. Zkontrolovat čas `app\release\app-release.apk` (musí být novější než úpravy), poslat jako PlayCaption_beta_0.20.apk.
+  4. Krátký test Xbox + PS5, pak vydání 0.20 (záloha NextUpdate - 020, GitHub push, FB, ZMENY.md, README věta o libchiaki-pc.so).
+
+Xbox: 15 min bez přerušení na 0.20e ✔. Přihlášení v pořádku ✔.
+
+## Otevřené problémy
+- ZVUK XBOX + SOUNDBAR (tester): při vzdáleném hraní přes PlayCaption zmizí zvuk hry v soundbaru (HDMI eARC); se sluchátky Xbox Wireless Headset zvuk jde; u Adama v TV zvuk jde normálně. Doporučeno testerovi: Xbox → Nastavení → Obecné → Hlasitost a zvukový výstup → Zvuk HDMI „nekomprimované“, Formát bitstreamu „Žádný“. Když nepomůže: volba „Zvuk přes PlayCaption (pro soundbar)“ – zapnout WebRTC audio stopu (teď `XboxSpojeni.kt` dělá `AudioTrack.setEnabled(false)`), jen v TV režimu, defaultně vypnuto.
+- Tester se Slovenska: dřív „already in use“ – PS5 držela jeho TV/jiné zařízení.
+- Chiaki v posledním záznamu hlásí „Takion Send Buffer overflow“ a tisíce opakovaných odeslání (PS5 nepotvrzuje zprávy z telefonu); obraz ale šel dál. Google překlad byl v tu chvíli pomalý (0,7–1,3 s) – asi zahlcená Wi-Fi. Sledovat.
+- Některé krátké drobné titulky vedle červených jmen tvůrců se nepřečtou („all of you…“, „Stay strong.“) – příčina zatím neznámá.
+- PS5 je na kabelu, Xbox na Wi-Fi; Xbox přesto dává čistší obraz (WebRTC si ztracené kousky vyžádá znovu, Chiaki pustí poškozený snímek) – proto bod 8.
+- Odpojení telefonu po zamčení (po 1 min) je záměrná pojistka.
+- Starý pád „Translator has been closed“ v záznamu (13.11. 00:04) je už opravený.
+
+## Plán do budoucna
+- Případně PS5 1080p na telefonu, slovník oprav OCR, nápověda pro přihlášení PS5 profilu.
