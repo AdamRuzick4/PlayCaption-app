@@ -11,8 +11,8 @@ android {
         applicationId = "cz.titulky.tv"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.20"
+        versionCode = 32
+        versionName = "0.20.1"
         // jen procesory, které mají televize (ARM) – aplikace je tak o třetinu menší
         ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }

@@ -176,6 +176,17 @@ class PrihlaseniTelefonem(private val cesky: Boolean, private val priKodu: (Stri
         )
 
         /** IP adresa zařízení v domácí síti (pro QR kód). */
+        /**
+         * IP adresa televize v síti, kterou právě používá (Wi-Fi nebo kabel).
+         * Dřív se brala první adresa z jakéhokoli rozhraní – na některých televizích to byla
+         * adresa nepoužívaného rozhraní a telefon se pak k ní nedostal (ERR_ADDRESS_UNREACHABLE).
+         */
+        fun mojeIp(ctx: android.content.Context): String? = runCatching {
+            val cm = ctx.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val lp = cm.getLinkProperties(cm.activeNetwork)
+            lp?.linkAddresses?.map { it.address }?.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }?.hostAddress
+        }.getOrNull() ?: mojeIp()
+
         fun mojeIp(): String? = runCatching {
             NetworkInterface.getNetworkInterfaces().toList()
                 .filter { it.isUp && !it.isLoopback }

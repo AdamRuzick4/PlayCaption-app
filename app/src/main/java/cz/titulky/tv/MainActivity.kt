@@ -861,7 +861,7 @@ class MainActivity : Activity() {
         obsah.addView(kodText, odsazeni(top = 14))
         val odpocet = text("", 16f, TEXT2).apply { gravity = Gravity.CENTER }
         obsah.addView(odpocet)
-        obsah.addView(text(t("pridatTvAdresa").replace("{ip}", PrihlaseniTelefonem.mojeIp() ?: "?"), 14f, TEXT2), odsazeni(top = 12))
+        obsah.addView(text(t("pridatTvAdresa").replace("{ip}", PrihlaseniTelefonem.mojeIp(this) ?: "?"), 14f, TEXT2), odsazeni(top = 12))
 
         var okno: android.app.AlertDialog? = null
         val tikani = object : Runnable {
@@ -1162,7 +1162,7 @@ class MainActivity : Activity() {
         server = PrihlaseniTelefonem(cesky) { kod -> runOnUiThread { if (obrazovka == "psnqr") vymenKod(kod) } }
             .also { it.spust() }
         val adresa = if (telefon) "http://127.0.0.1:${PrihlaseniTelefonem.PORT}"
-            else "http://${PrihlaseniTelefonem.mojeIp() ?: "?"}:${PrihlaseniTelefonem.PORT}"
+            else "http://${PrihlaseniTelefonem.mojeIp(this) ?: "?"}:${PrihlaseniTelefonem.PORT}"
 
         val sloupec = svisle()
         sloupec.addView(nadpisLogo())
@@ -1392,7 +1392,7 @@ class MainActivity : Activity() {
     /** Návod, když televize povolení "Zobrazovat přes jiné aplikace" schovává. */
     private fun ukazNavodPovoleni() {
         zkouselPovoleni = false
-        val ip = runCatching { PrihlaseniTelefonem.mojeIp() }.getOrNull() ?: "IP_TELEVIZE"
+        val ip = runCatching { PrihlaseniTelefonem.mojeIp(this) }.getOrNull() ?: "IP_TELEVIZE"
         runCatching {
             android.app.AlertDialog.Builder(this)
                 .setTitle(t("povoleniNavodNadpis"))
