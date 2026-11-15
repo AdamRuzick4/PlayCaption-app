@@ -2,6 +2,7 @@
 /* Samsung prijímač PlayCaption. Rozmiestnenie titulkov vychádza z LG prijímača
    (webos/app/app.js v PlayCaption, © Adam Růžička). */
 var NAZOV_PORTU = 'PLAYCAPTION_UI';
+var NAZOV_PORTU_SLUZBY = 'PLAYCAPTION_SLUZBA';
 
 var hdmi = [];
 var idx = 0;
@@ -9,6 +10,7 @@ var hdmiText = 'HDMI sa spúšťa...';
 var prijemText = 'Spúšťam príjem titulkov...';
 var prijemChyba = false;
 var nazovTv = '';
+var verziaTv = '';
 var sluzbaVidena = 0;
 var sluzbaPokus = 0;
 var dataVidene = 0;
@@ -55,12 +57,12 @@ function kresliLadenie(teraz) {
     }
     var p = stavSluzby && stavSluzby.pocty;
     var riadky = [
-        'LADENIE (OK = schovať)   beží ' + Math.round((teraz - start) / 1000) + ' s',
+        'LADENIE (OK = schovať)   beží ' + Math.round((teraz - start) / 1000) + ' s' + (verziaTv ? '   verzia ' + verziaTv : ''),
         'Služba: ' + (stavSluzby ? stavSluzby.node + ', ozvala sa pred ' + pred(sluzbaVidena, teraz) : 'zatiaľ sa neozvala'),
         'TV v sieti: ' + (stavSluzby && stavSluzby.adresy && stavSluzby.adresy.length ? stavSluzby.adresy.join(', ') : 'neznáme'),
         'Ohlásenia: ' + (p ? p.ohlasenia : 0) + '   Telefón: ' + (poslednyZdroj || 'žiadny') + ', dáta pred ' + pred(dataVidene || posledneData, teraz),
         'Prijaté: titulky ' + (p ? p.titulky : 0) + ', voľby ' + (p ? p.volby : 0) + ', oblasti ' + (p ? p.oblasti : 0) +
-            ', neznáme ' + (p ? p.neplatne : 0) + ', prevzatia ' + (p ? p.prevzatia : 0) + ', cudzie ' + (p ? p.odmietnute : 0),
+            ', príbeh ' + (p && p.pribeh ? p.pribeh : 0) + ', neznáme ' + (p ? p.neplatne : 0) + ', prevzatia ' + (p ? p.prevzatia : 0) + ', cudzie ' + (p ? p.odmietnute : 0),
         'Zobrazené titulky: ' + zobrazene,
         '----'
     ];
@@ -123,8 +125,21 @@ function filtrujHdmi(zoznam) {
     return vysledok;
 }
 
-function vycistiText() {
-    ui.clear();
+/* Stav čítania repliky v Príbehovom režime ide cez službu späť telefónu. */
+function pribehStav(id, stav) {
+    try {
+        var ja = tizen.application.getCurrentApplication();
+        tizen.messageport.requestRemoteMessagePort(ja.appInfo.packageId + '.Prijimac', NAZOV_PORTU_SLUZBY)
+            .sendMessage([{ key: 'd', value: JSON.stringify({ t: 'pribehStav', id: id, stav: stav }) }]);
+    } catch (e) {}
+}
+
+function vycistiText(nechajPribeh) {
+    if (nechajPribeh && ui.storyActive()) {
+        ui.pauseStory(Date.now());
+    } else {
+        ui.clear();
+    }
     elTitulok.hidden = true;
     elHint.hidden = true;
     elHint.textContent = '';
@@ -135,7 +150,7 @@ function spracujPaket(paket, zdroj) {
     var teraz = Date.now();
     var zmenaSpojenia = poslednyZdroj !== zdroj || (dataVidene && teraz - dataVidene > 5000);
     if (zmenaSpojenia) {
-        vycistiText();
+        vycistiText(paket.kind === 'story' && (!poslednyZdroj || poslednyZdroj === zdroj));
         prijemText = 'Telefón posiela titulky (' + zdroj + ').';
         prijemChyba = false;
         ukazStav(4000);
@@ -146,18 +161,29 @@ function spracujPaket(paket, zdroj) {
     if (ui.handle(paket, teraz)) {
         return;
     }
-    if (paket.id === posledneId && !zmenaSpojenia) {
+    if (paket.kind !== 'story' && ui.storyActive()) {
+        return;
+    }
+    if (paket.kind === 'story' && ui.oldStory(paket.id)) {
+        return;
+    }
+    var novy = paket.id !== posledneId || zmenaSpojenia;
+    // Opakované pakety sú len udržiavanie spojenia; v Príbehu ale nesú pauzu a čakajú na stav.
+    if (!novy && paket.kind !== 'story') {
         return;
     }
     posledneId = paket.id;
-    if (paket.text) {
-        zobrazene++;
-        zaznam('Titulok #' + paket.id + ' (' + paket.duration + ' ms): ' + paket.text.replace(/\n/g, ' / ').slice(0, 70));
-    } else {
-        zaznam('Titulok #' + paket.id + ': prázdny (schovať)');
-    }
-    if (paket.hint) {
-        zaznam('Nápoveda: ' + paket.hint.replace(/\n/g, ' / ').slice(0, 70));
+    if (novy) {
+        var druh = paket.kind === 'story' ? 'Príbeh' : 'Titulok #' + paket.id + ' (' + paket.duration + ' ms)';
+        if (paket.text) {
+            zobrazene++;
+            zaznam(druh + ': ' + paket.text.replace(/\n/g, ' / ').slice(0, 70));
+        } else {
+            zaznam(druh + ': prázdny (schovať)');
+        }
+        if (paket.hint) {
+            zaznam('Nápoveda: ' + paket.hint.replace(/\n/g, ' / ').slice(0, 70));
+        }
     }
     elTitulok.hidden = !paket.text;
     titulokDo = teraz + paket.duration;
@@ -169,7 +195,15 @@ function spracujPaket(paket, zdroj) {
     elTitulok.style.width = (sirka * 100) + '%';
     var vyska = document.documentElement.clientHeight || 1080;
     elTitulok.style.fontSize = Math.min(38 * (r ? r[3] : 1), (vyska * 0.18 - 32) / 2.7) + 'px';
-    ui.caption(paket, teraz);
+    if (paket.kind === 'story') {
+        titulokDo = Infinity;
+        var stav = ui.story(paket, teraz);
+        if (stav) {
+            pribehStav(paket.id, stav);
+        }
+    } else {
+        ui.caption(paket, teraz);
+    }
     if (paket.hint !== elHint.textContent) {
         elHint.textContent = paket.hint;
         elHint.hidden = !paket.hint;
@@ -192,6 +226,7 @@ function odSluzby(data) {
         spracujPaket(sprava.paket, sprava.zdroj);
     } else if (sprava.t === 'pripravene') {
         nazovTv = sprava.nazov;
+        verziaTv = sprava.verzia || '';
         if (!stavSluzby) {
             zaznam('Služba beží: ' + sprava.nazov);
         }
@@ -252,7 +287,7 @@ function tik() {
     }
     if (dataVidene && teraz - dataVidene > 5000) {
         dataVidene = 0;
-        vycistiText();
+        vycistiText(true);
         prijemText = 'Spojenie s telefónom prerušené, čakám.';
         zaznam('5 s bez dát z telefónu, schovávam titulky');
         ukazStav(10000);

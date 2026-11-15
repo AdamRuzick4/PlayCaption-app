@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
-/* Prevzaté z PlayCaption (webos/app/receiver-ui.js, © Adam Růžička). Zmena: trimEnd nahradený regulárnym výrazom kvôli starším Samsung TV. */
+/* Prevzaté z PlayCaption (webos/app/receiver-ui.js, © Adam Růžička) skriptom tizen/sync.py. Zmena: trimEnd nahradený regulárnym výrazom kvôli starším Samsung TV. Neupravovať ručne. */
 (function () {
     "use strict";
     window.PlayCaptionReceiverUI = function (document) {
@@ -10,7 +10,8 @@
         var lastChoiceId = null;
         var lastFrameMode = 0;
         var choicesUntil = 0, yellowUntil = 0, blueUntil = 0, greenUntil = 0;
-        var captionPacket = null, captionOffset = 0, captionNext = 0, captionUntil = 0;
+        var captionPacket = null, captionOffset = 0, captionNext = 0, captionUntil = 0, captionStart = 0;
+        var storyId = null, storyMode = false, storyDone = false, storyPaused = false, storyRemaining = 0;
 
         function pageEnd(text) {
             var ends = [], word, words = /\S+/g;
@@ -42,12 +43,17 @@
             captionOffset += rest.length - rest.replace(/^\s+/, "").length;
             rest = captionPacket.text.slice(captionOffset);
             var start = captionOffset;
+            captionStart = start;
             var end = pageEnd(rest);
             var colors = (captionPacket.colors || []).slice(captionPacket.text.slice(0, start).split("\n").length - 1);
             if (start && captionPacket.text[start - 1] !== "\n") colors[0] = 0;
             paintCaption(rest.slice(0, end), colors);
             captionOffset += end;
-            captionNext = now + Math.max(2000, 1000 + end * 50);
+            var letters = Array.from(rest.slice(0, end).normalize("NFC")).length;
+            var storyDuration = captionPacket.adjustableTiming ?
+                Math.ceil(Math.max(1500, Math.ceil(letters * 1000 / 18)) * captionPacket.durationPercent * 80 / 10000) :
+                Math.max(1800, Math.ceil(letters * 1000 / 14));
+            captionNext = now + (captionPacket.kind === "story" ? storyDuration : Math.max(2000, 1000 + end * 50));
         }
 
         function positionFrame(node, area) {
@@ -126,6 +132,47 @@
             }
         }
 
+        this.storyActive = function () { return storyMode; };
+        this.oldStory = function (id) {
+            var old = storyId && storyId.split("."), next = id.split(".");
+            if (old && old[0] === next[0]) {
+                for (var i = 1; i < 4; i++) {
+                    if (Number(next[i]) < Number(old[i])) return true;
+                    if (Number(next[i]) > Number(old[i])) return false;
+                }
+            }
+            return false;
+        };
+        this.pauseStory = function (now) {
+            if (storyMode && !storyPaused && !storyDone) {
+                storyRemaining = Math.max(0, captionNext - now); storyPaused = true;
+            }
+            subtitle.hidden = true;
+        };
+        this.story = function (packet, now) {
+            if (storyId !== packet.id) {
+                if (this.oldStory(packet.id)) return null;
+                captionPacket = null; storyId = packet.id; storyDone = !packet.text; storyMode = Boolean(packet.text); storyPaused = false;
+                if (storyDone) { subtitle.hidden = true; return "done"; }
+                this.caption(packet, now); captionUntil = Infinity;
+            }
+            if (captionPacket) {
+                captionPacket.durationPercent = packet.durationPercent;
+                captionPacket.adjustableTiming = packet.adjustableTiming;
+            }
+            if (captionPacket && JSON.stringify(captionPacket.layout) !== JSON.stringify(packet.layout)) {
+                captionPacket.layout = packet.layout; captionOffset = captionStart;
+                var hidden = subtitle.hidden; subtitle.hidden = false;
+                nextCaption(now); storyRemaining = captionNext - now; subtitle.hidden = hidden;
+            }
+            if (!storyDone && packet.paused !== storyPaused) {
+                if (packet.paused) storyRemaining = Math.max(0, captionNext - now);
+                else captionNext = now + storyRemaining;
+                storyPaused = packet.paused;
+            }
+            subtitle.hidden = storyDone || storyPaused;
+            return storyDone ? "done" : "reading";
+        };
         this.caption = function (packet, now) {
             var same = captionPacket && packet.text === captionPacket.text &&
                 JSON.stringify([packet.layout, packet.colors]) === JSON.stringify([captionPacket.layout, captionPacket.colors]) && now < captionUntil;
@@ -137,8 +184,10 @@
         };
 
         this.tick = function (now) {
-            if (captionPacket && now < captionUntil && now >= captionNext && captionOffset < captionPacket.text.replace(/\s+$/, "").length)
-                nextCaption(now);
+            if (captionPacket && (!storyMode || !storyPaused) && now < captionUntil && now >= captionNext) {
+                if (captionOffset < captionPacket.text.replace(/\s+$/, "").length) nextCaption(now);
+                else if (storyMode) { storyDone = true; captionPacket = null; subtitle.hidden = true; }
+            }
             if (now >= choicesUntil) choices.hidden = true;
             if (now >= yellowUntil) yellow.hidden = true;
             if (now >= blueUntil) blue.hidden = true;
@@ -146,12 +195,15 @@
         };
 
         this.clear = function () {
+            // Při restartu UI se nedočtená replika musí přečíst znovu, nikoli falešně potvrdit.
+            if (storyMode && !storyDone) storyId = null;
             choices.hidden = true; yellow.hidden = true; blue.hidden = true;
             choices.textContent = "";
             subtitle.style.outline = "";
             lastChoiceId = null; lastFrameMode = 0;
             choicesUntil = yellowUntil = blueUntil = greenUntil = 0;
             captionPacket = null; captionOffset = captionNext = captionUntil = 0;
+            storyMode = false; storyDone = true; storyPaused = false;
         };
     };
 }());

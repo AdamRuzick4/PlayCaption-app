@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://playcaption.local/PlayCaptionTest" version="1.2.0" viewmodes="maximized">
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://playcaption.local/PlayCaptionTest" version="1.3.0" viewmodes="maximized">
     <tizen:application id="PCaption01.PlayCaptionTest" package="PCaption01" required_version="2.4"/>
     <content src="index.html"/>
     <feature name="http://tizen.org/feature/screen.size.all"/>

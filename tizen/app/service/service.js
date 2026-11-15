@@ -6,6 +6,9 @@
 var PORT_HLADANIE = 41988;
 var PORT_TITULKY = 41989;
 var NAZOV_PORTU = "PLAYCAPTION_UI";
+var NAZOV_PORTU_SLUZBY = "PLAYCAPTION_SLUZBA";
+// Rovnaké číslo ako version v config.xml (stráži tizen/build.py). Telefón ho číta z ohlásenia.
+var VERZIA = "1.3.0";
 
 var socket = null;
 var casovac = null;
@@ -17,7 +20,11 @@ var bezApkyOd = 0;
 var chybaTextu = "";
 var pripravene = false;
 var mojeAdresy = [];
-var pocty = { ohlasenia: 0, titulky: 0, volby: 0, oblasti: 0, neplatne: 0, prevzatia: 0, odmietnute: 0 };
+var pocty = { ohlasenia: 0, titulky: 0, volby: 0, oblasti: 0, neplatne: 0, prevzatia: 0, odmietnute: 0, pribeh: 0 };
+// Príbehový režim: apka na obrazovke stránkuje repliku a služba jej stav vracia telefónu (PCA1).
+var pribehKomu = null;
+var portOdApky = null;
+var potvrdzovanie = false;
 
 function idApky() {
     var ja = tizen.application.getCurrentApplication();
@@ -49,7 +56,7 @@ function zaznam(text) {
 }
 
 function stavSluzby() {
-    return { t: "pripravene", nazov: nazov, node: process.version, adresy: mojeAdresy, pocty: pocty, odosielatel: odosielatel };
+    return { t: "pripravene", nazov: nazov, verzia: VERZIA, pribeh: potvrdzovanie, node: process.version, adresy: mojeAdresy, pocty: pocty, odosielatel: odosielatel };
 }
 
 function retazecNaBajty(text) {
@@ -57,10 +64,39 @@ function retazecNaBajty(text) {
     return new Buffer(text, "utf8");
 }
 
+function odApky(data) {
+    var sprava = null;
+    for (var i = 0; i < data.length; i++) {
+        if (data[i].key === "d") {
+            try { sprava = JSON.parse(data[i].value); } catch (e) {}
+        }
+    }
+    if (!sprava || sprava.t !== "pribehStav" || !socket || !pribehKomu || sprava.id !== pribehKomu.id) return;
+    if (sprava.stav !== "reading" && sprava.stav !== "done") return;
+    var odpoved = retazecNaBajty("PCA1\t" + sprava.id + "\t" + sprava.stav);
+    socket.send(odpoved, 0, odpoved.length, pribehKomu.port, pribehKomu.adresa, function () {});
+}
+
+/* Bez spätnej cesty od apky by telefón nikdy nedostal potvrdenie dočítania,
+   preto sa podpora Príbehu ohlási len vtedy, keď sa port podarilo otvoriť. */
+function otvorPortOdApky() {
+    if (portOdApky) return;
+    try {
+        portOdApky = tizen.messageport.requestLocalMessagePort(NAZOV_PORTU_SLUZBY);
+        portOdApky.addMessagePortListener(odApky);
+        potvrdzovanie = true;
+    } catch (e) {
+        portOdApky = null;
+        potvrdzovanie = false;
+        zaznam("Príbehový režim nie je dostupný: " + (e && e.message ? e.message : e));
+    }
+}
+
 function zastav() {
     if (casovac) clearInterval(casovac);
     casovac = null;
     pripravene = false;
+    pribehKomu = null;
     if (socket) {
         try { socket.close(); } catch (e) {}
     }
@@ -107,7 +143,7 @@ function spusti() {
     if (adresy.length === 0) adresy.push("255.255.255.255");
     var id = crypto.createHash("sha256").update(identita).digest("hex").slice(0, 12);
     nazov = "Samsung PlayCaption · " + id.toUpperCase();
-    var ohlasenie = retazecNaBajty("PLAYCAPTION_TV\tsamsung-" + id + "\t" + nazov + "\t0");
+    var ohlasenie = retazecNaBajty("PLAYCAPTION_TV\tsamsung-" + id + "\t" + nazov + "\t0\t" + VERZIA);
 
     function tik() {
         adresy.forEach(function (adresa) {
@@ -152,10 +188,25 @@ function spusti() {
             }
             return;
         }
-        if (odosielatel !== odkial.address) zaznam("Titulky posiela " + odkial.address);
+        if (paket.kind === "storyQuery") {
+            // Bez odpovede telefón ukáže, že prijímač Príbeh nepodporuje, a ostane pri bežnom režime.
+            if (potvrdzovanie) {
+                var pripraveny = retazecNaBajty("PCA1\t" + paket.id + "\tready");
+                prijimac.send(pripraveny, 0, pripraveny.length, odkial.port, odkial.address, function () {});
+            }
+            return;
+        }
+        if (paket.kind === "story" && !potvrdzovanie) return;
+        if (odosielatel !== odkial.address) {
+            pribehKomu = null;
+            zaznam("Titulky posiela " + odkial.address);
+        }
         odosielatel = odkial.address;
         odosielatelVideny = teraz;
-        if (paket.kind === "subtitle") pocty.titulky++;
+        if (paket.kind === "story") {
+            pribehKomu = { id: paket.id, adresa: odkial.address, port: odkial.port };
+            pocty.pribeh++;
+        } else if (paket.kind === "subtitle") pocty.titulky++;
         else if (paket.kind === "choices") pocty.volby++;
         else pocty.oblasti++;
         posli({ t: "paket", paket: paket, zdroj: odkial.address });
@@ -178,6 +229,7 @@ function start() {
         return;
     }
     bezApkyOd = 0;
+    otvorPortOdApky();
     if (pripravene) {
         posli(stavSluzby());
     } else if (!socket) {
