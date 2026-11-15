@@ -12,7 +12,6 @@ import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.util.concurrent.Executors
 
 /**
  * Překlad angličtina → čeština.
@@ -23,6 +22,7 @@ import java.util.concurrent.Executors
  * Výsledek se vždy vrací na hlavním vlákně.
  */
 class Prekladac(context: android.content.Context? = null, cilovy: String = "cs") {
+    private val jenOnline = BraviaPolicy.constrained(context)
 
     /** Cílový jazyk překladu (kód: cs, sk, de, pl, fr, es, it). */
     @Volatile var cil: String = cilovy
@@ -35,27 +35,31 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
             .build()
     )
 
-    private var translator: Translator = novyTranslator(cilovy)
+    private var mistni: Translator? = null
+    private val translator: Translator
+        get() = mistni ?: novyTranslator(cil).also { mistni = it }
     /** Překladač už je zavřený (služba skončila) – pozdě doběhnuté překlady jen zahodit, nespadnout. */
     @Volatile private var zavreno = false
 
     /** Přepne cílový jazyk (např. po změně v aplikaci). */
     fun nastavJazyk(kod: String) {
         if (kod == cil) return
-        val stary = translator
+        val stary = mistni
         cil = kod
-        translator = novyTranslator(kod)
+        mistni = null
         cache.evictAll()
-        runCatching { stary.close() }
-        translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
+        runCatching { stary?.close() }
+        if (!jenOnline) translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
     }
 
     private val ui = Handler(Looper.getMainLooper())
-    private val sit = Executors.newSingleThreadExecutor()
+    // A hint must not block a dialogue translation on the network. Keep at
+    // most two requests active and bound the pending queue on low-memory TVs.
+    private val sit = SitPrekladu.novaFronta()
 
 
     /** Paměť na už přeložené věty – ve hrách se věty často opakují. */
-    private val cache = LruCache<String, String>(500)
+    private val cache = LruCache<String, String>(128)
 
     var pripraven = false
         private set
@@ -76,6 +80,7 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
 
     /** Stáhne jazykový balíček pro záložní překlad v televizi (jen poprvé). */
     fun priprav(hotovo: () -> Unit, chyba: (String) -> Unit) {
+        if (jenOnline) { pripraven = true; hotovo(); return }
         translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
             .addOnSuccessListener { pripraven = true; hotovo() }
             .addOnFailureListener { chyba(it.message ?: "Neznámá chyba") }
@@ -124,6 +129,7 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
 
     /** Jen rychlý překlad přímo v televizi (bez internetu) – na okamžitý náhled. */
     fun prelozRychle(text: String, hotovo: (String) -> Unit, chyba: (String) -> Unit) {
+        if (jenOnline) { chyba("Na 2GB TV je místní překladač vypnutý kvůli paměti."); return }
         val vstup = upravSlang(text.trim())
         if (vstup.isEmpty()) { hotovo(""); return }
         // když už Google tuhle větu znal, vrátit rovnou dobrý překlad
@@ -141,6 +147,7 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
         prelozVTelevizi(vstup, hotovo, chyba)
 
     private fun prelozVTelevizi(vstup: String, hotovo: (String) -> Unit, chyba: (String) -> Unit) {
+        if (jenOnline) { chyba("Online překlad není dostupný; místní překlad je na 2GB TV vypnutý."); return }
         // Mezitím mohla služba skončit a překladač zavřít ("Translator has been closed") → nespadnout
         if (zavreno) { chyba("překladač zavřený"); return }
         runCatching {
@@ -233,7 +240,7 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
 
     fun zavri() {
         zavreno = true
-        runCatching { translator.close() }
+        runCatching { mistni?.close() }
         sit.shutdown()
     }
 

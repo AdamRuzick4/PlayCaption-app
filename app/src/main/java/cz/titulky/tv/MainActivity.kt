@@ -68,6 +68,13 @@ class MainActivity : Activity() {
         val AKTIVNI_JAZYKY = setOf("cs", "sk")
     }
 
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == Zaznam.EXPORT_REQUEST && resultCode == RESULT_OK) {
+            data?.data?.let { Zaznam.uloz(this, it) }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Pady.hlidej(this)

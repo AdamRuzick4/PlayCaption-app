@@ -132,6 +132,8 @@ class RemotePlayService : Service() {
     override fun onCreate() {
         super.onCreate()
         Pady.hlidej(this)
+        Diagnostika.phase("vytvoření Remote Play služby")
+        if (BraviaPolicy.constrained(this)) zapniUsporu("2GB TV: online překlad, jedna čtečka, bez rozehřívání")
         // televize, která sama o sobě hlásí "málo paměti" → rovnou šetřit
         runCatching {
             val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
@@ -280,6 +282,12 @@ class RemotePlayService : Service() {
             hledamPrave = false
         }
         if (!automat || pripojeno() || hledamPrave) return
+        if (ukoncovani.get() > 0) {
+            zapis("[čekám na uvolnění předchozího dekodéru]")
+            ui.removeCallbacks(hlidac)
+            ui.postDelayed(hlidac, 2000)
+            return
+        }
         // překladač "rozehřát" hned (první překlad jinak trvá ~4 s)
         if (!rozehrato) {
             rozehrato = true
@@ -391,6 +399,11 @@ class RemotePlayService : Service() {
     }
 
     private fun spust() {
+        if (ukoncovani.get() > 0) {
+            ui.removeCallbacks(hlidac)
+            ui.postDelayed(hlidac, 2000)
+            return
+        }
         val udaje = RemotePlayUdaje(this)
         val ip = udaje.ipKonzole
         val registKey = udaje.registKey
@@ -433,7 +446,7 @@ class RemotePlayService : Service() {
             plocha = g.start()
             snimac = g
         } else {
-            val r = ImageReader.newInstance(SIRKA, VYSKA, ImageFormat.YUV_420_888, 3)
+            val r = ImageReader.newInstance(SIRKA, VYSKA, ImageFormat.YUV_420_888, if (uspora) 2 else 3)
             reader = r
             r.setOnImageAvailableListener({ ir ->
                 try {
@@ -455,6 +468,7 @@ class RemotePlayService : Service() {
         val hevc = telefon && !prefsObraz.getBoolean("bezHevc", false) && umiHevc()
         pouzitHevc = hevc
         zapis(if (hevc) "[kodek: H.265]" else "[kodek: H.264]")
+        Diagnostika.phase("spouštění dekodéru ${sirkaStreamu}x$vyskaStreamu uspora=$uspora hevc=$hevc")
         val profil = ConnectVideoProfile(sirkaStreamu, vyskaStreamu, 30, tok, if (hevc) Codec.CODEC_H265 else Codec.CODEC_H264)
         val info = ConnectInfo(ps5 = true, host = ip, registKey = registKey, morning = rpKey, videoProfile = profil)
         try {
@@ -559,8 +573,9 @@ class RemotePlayService : Service() {
             val limit = if (uspora || zahrivani) 20000 else 5000
             if (trva > limit) {
                 zahrivani = false
-                zapis("[čtení se zaseklo – znovu]")
-                obsazeno[i].set(false)
+                // A timed-out ML task still owns its input and executor. Do not
+                // enqueue a second task on top of it and grow memory indefinitely.
+                zapis("[čtení trvá dlouho – čekám na dokončení, další úlohu nespouštím]")
             }
         }
         val volna = obsazeno.indices.firstOrNull { !obsazeno[it].get() } ?: return null
@@ -628,7 +643,14 @@ class RemotePlayService : Service() {
         otiskMinulehoSnimku = otisk
         if (minuly != null && !stejny(minuly, otisk)) {
             if (zmenaOd == 0L) zmenaOd = zacatek
-            if (zacatek - zmenaOd < 200) { stSkipVynoreni++; obsazeno[c].set(false); return }
+            if (zacatek - zmenaOd < 200) {
+                // Recheck the emerging text after 200 ms, rather than waiting
+                // another complete conservative sampling interval.
+                dalsiCteni = minOf(dalsiCteni, zmenaOd + 200)
+                stSkipVynoreni++
+                obsazeno[c].set(false)
+                return
+            }
         }
         zmenaOd = 0L
         stCteni++
@@ -664,6 +686,7 @@ class RemotePlayService : Service() {
         odX: Float, odY: Float, sirkaObrazu: Float, vyskaObrazu: Float, ctecka: Ctecka,
         uzkyPas: Boolean = false, jas: Int = 0, nadNapovedou: Boolean = false
     ) {
+        Diagnostika.phase("OCR snímek=$cislo ${pas.bitmapa.width}x${pas.bitmapa.height}")
         // kde dřív byla nápověda (ve výřezu) → přepočítat do souřadnic čteného pásu
         val pasmaNapovedy = synchronized(napovedy) { napovedy.toList() }.map { (t, b) ->
             ((t - pas.nahore) * pas.meritko).toInt()..((b - pas.nahore) * pas.meritko).toInt()
@@ -683,6 +706,7 @@ class RemotePlayService : Service() {
                         return@prectiPosledniTitulek
                     }
                 }
+                Diagnostika.phase("OCR dokončeno snímek=$cislo")
                 obsazeno[c].set(false)
                 // druhá čtečka mezitím přečetla novější snímek → tenhle výsledek je zastaralý
                 if (cislo < posledniVysledek) return@prectiPosledniTitulek
@@ -971,6 +995,9 @@ class RemotePlayService : Service() {
     private var posledniSpojeno = false
 
     private fun prelozAUkaz(surove: List<String>, box: FloatArray?, radku: Int, barvyJmen: IntArray, cislo: Long, oprava: Boolean = false) {
+        val cteniTetoRepliky = casCteni
+        val prekladOd = android.os.SystemClock.elapsedRealtime()
+        Diagnostika.phase("překlad snímek=$cislo")
         if (!nast.dialogy) return
         // číslice nalepená před slovem ("3Miss Grimshaw..") je smetí ze čtení
         val puvodni = surove.map { Regex("^[0-9](?=[A-Z][a-z])").replace(it, "") }
@@ -1033,7 +1060,7 @@ class RemotePlayService : Service() {
             else ui.postDelayed({ ukazJestli(cesky, dobry = false) }, zbyva)
         }
         prelozVse(repliky, rychle = false) { cesky ->
-            zapis("  → ČESKY (čtení ${casCteni} ms, překlad ${System.currentTimeMillis() - zacatekPrekladu} ms ${prekladac.zdroj}, chyb Googlu ${prekladac.chybGooglu}): " + cesky.replace("\n", " / "))
+            zapis("  → ČESKY (čtení ${cteniTetoRepliky} ms, překlad ${android.os.SystemClock.elapsedRealtime() - prekladOd} ms ${prekladac.zdroj}, chyb Googlu ${prekladac.chybGooglu}): " + cesky.replace("\n", " / "))
             ukazJestli(cesky, dobry = true)
         }
     }
@@ -1473,6 +1500,7 @@ class RemotePlayService : Service() {
 
     /** Žlutý rámeček u Xboxu: barvy oblasti ze snímku WebRTC (I420 → RGB). */
     private fun ctiVolbyXbox(f: org.webrtc.VideoFrame) {
+        if (uspora) return
         val ted = System.currentTimeMillis()
         if (volbyCtu && ted - volbyOd < 3000) return
         if (ted < volbyDalsi || pozastaveno) return
@@ -1495,6 +1523,7 @@ class RemotePlayService : Service() {
     }
 
     private fun ctiVolby(sirka: Int, vyska: Int, precti: (Int, Int, Int, Int) -> IntArray) {
+        if (uspora) return
         val ted = System.currentTimeMillis()
         if (volbyCtu && ted - volbyOd < 3000) return
         if (ted < volbyDalsi || pozastaveno) return
@@ -1866,6 +1895,7 @@ class RemotePlayService : Service() {
     private fun onUdalost(udalost: Event) {
         when (udalost) {
             is ConnectedEvent -> {
+                Diagnostika.phase("Remote Play připojeno; čekám na snímky")
                 zapis("[PŘIPOJENO k PS5]")
                 posledniSnimekKdy = System.currentTimeMillis()
                 pripojenoKdy = posledniSnimekKdy
@@ -1947,9 +1977,21 @@ class RemotePlayService : Service() {
         xb?.zastav()
         val s = session
         session = null
+        val staryReader = reader
+        val starySnimac = snimac
+        reader = null
+        snimac = null
         if (s != null) synchronized(vsechnaSpojeni) { vsechnaSpojeni.remove(s) }
         ukonciStareSpojeni()
-        if (s != null) ukonciVPozadi(listOf(s))
+        ukonciVPozadi(listOfNotNull(s)) {
+            // No native decoder owns these surfaces now. Queue the reader close
+            // behind any in-flight image callback on its handler thread.
+            val uvolni = Runnable {
+                runCatching { staryReader?.close() }
+                runCatching { starySnimac?.zavri() }
+            }
+            if (!bg.post(uvolni)) uvolni.run()
+        }
     }
 
     /**
@@ -1957,12 +1999,24 @@ class RemotePlayService : Service() {
      * jako hledání PS5 → hledání se zaseklo a aplikace „čekala navždy“ (pomohlo jen Vynutit ukončení).
      * Teď vlastní vlákno – hledání a nové připojení na něj nečekají.
      */
-    private fun ukonciVPozadi(spojeni: List<Session>) {
+    private fun ukonciVPozadi(spojeni: List<Session>, hotovo: () -> Unit = {}) {
+        ukoncovani.incrementAndGet()
         Thread {
-            for (s in spojeni) {
-                runCatching { s.setSurface(null) }
-                runCatching { s.stop() }
-                runCatching { s.dispose() }
+            try {
+                Diagnostika.phase("ukončování ${spojeni.size} Remote Play spojení")
+                for (s in spojeni) {
+                    // sessionFree joins and releases the decoder. Detaching its
+                    // surface before signalling stop can wait on a live decoder.
+                    Diagnostika.note("Remote Play: volám stop")
+                    runCatching { s.stop() }.onFailure { Diagnostika.note("stop: ${it.javaClass.simpleName}") }
+                    Diagnostika.note("Remote Play: volám dispose/join")
+                    runCatching { s.dispose() }.onFailure { Diagnostika.note("dispose: ${it.javaClass.simpleName}") }
+                    Diagnostika.note("Remote Play: dispose dokončeno")
+                }
+            } finally {
+                runCatching { hotovo() }
+                ukoncovani.decrementAndGet()
+                Diagnostika.note("dekodér ukončen; zbývá=${ukoncovani.get()}")
             }
         }.apply { isDaemon = true; name = "ps5-konec" }.start()
     }
@@ -2038,6 +2092,7 @@ class RemotePlayService : Service() {
     }
 
     companion object {
+        private val ukoncovani = java.util.concurrent.atomic.AtomicInteger(0)
         const val ACTION_STOP = "cz.titulky.tv.REMOTE_STOP"
         const val ACTION_PREPNOUT = "cz.titulky.tv.REMOTE_PREPNOUT"
 
@@ -2095,7 +2150,7 @@ class RemotePlayService : Service() {
         const val MAX_DELKA_TITULKU_MS = 15_000L
         const val INTERVAL_MS = 250L
         /** Slabá televize: dívat se na obraz méně často. */
-        const val INTERVAL_MS_USPORA = 600L
+        const val INTERVAL_MS_USPORA = 500L
         const val INTERVAL_MS_TELEFON = 100L
 
         /** Jména postav, která překladač překládá jako běžná slova. */

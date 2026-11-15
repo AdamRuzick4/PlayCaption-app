@@ -32,11 +32,12 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.core:core-ktx:1.13.1")
     // Překlad přímo v televizi – zdarma, bez limitu (Google ML Kit)
     implementation("com.google.mlkit:translate:17.0.3")
     // Čtení textu z obrazu – zdarma, v televizi, bez stahování (Google ML Kit)
-    implementation("com.google.mlkit:text-recognition:16.0.1")
+    implementation("com.google.mlkit:text-recognition:16.0.0-beta5")
     // Rozpoznání jazyka – překládáme jen anglický text (zdarma, v televizi)
     implementation("com.google.mlkit:language-id:17.0.6")
     // QR kód pro přihlášení k PSN přes telefon
