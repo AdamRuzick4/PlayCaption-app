@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://playcaption.local/PlayCaptionTest" version="1.2.0" viewmodes="maximized">
+    <tizen:application id="PCaption01.PlayCaptionTest" package="PCaption01" required_version="2.4"/>
+    <content src="index.html"/>
+    <feature name="http://tizen.org/feature/screen.size.all"/>
+    <icon src="icon.png"/>
+    <name>PlayCaption Samsung</name>
+    <tizen:profile name="tv-samsung"/>
+    <tizen:setting screen-orientation="landscape" context-menu="enable" background-support="enable" encryption="disable" install-location="auto" hwkey-event="enable"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.window"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.audio"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:service id="PCaption01.Prijimac">
+        <tizen:content src="service/service.js"/>
+        <tizen:name>PlayCaptionPrijimac</tizen:name>
+        <tizen:icon src="icon.png"/>
+        <tizen:description>Príjem titulkov z telefónu</tizen:description>
+        <tizen:category name="http://tizen.org/category/service"/>
+    </tizen:service>
+    <access origin="*" subdomains="true"/>
+</widget>
