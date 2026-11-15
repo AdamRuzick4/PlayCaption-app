@@ -79,3 +79,31 @@ val prepareLgReceiver = tasks.register<Exec>("prepareLgReceiver") {
 }
 android.sourceSets.getByName("main").assets.srcDir(lgAssets)
 tasks.named("preBuild") { dependsOn(prepareLgReceiver) }
+
+// Samsung přijímač: nepodepsaný WGT ze stejných zdrojů jako samostatné vydání.
+// Podpis vzniká až při instalaci, protože certifikát Samsung je vázaný na DUID konkrétní TV.
+val samsungAssets = layout.buildDirectory.dir("generated/samsungReceiverAssets")
+val prepareSamsungReceiver = tasks.register<Exec>("prepareSamsungReceiver") {
+    inputs.files(fileTree(rootProject.file("tizen")) { include("app/**", "test/*.cjs", "*.py") })
+    inputs.files(rootProject.file("webos/service/protocol.js"), rootProject.file("webos/app/receiver-ui.js"))
+    outputs.dir(samsungAssets)
+    outputs.dir(rootProject.file("tizen/dist"))
+    workingDir(rootProject.projectDir)
+    commandLine("python3", "tizen/build.py")
+    doLast {
+        val dist = rootProject.file("tizen/dist")
+        val manifestFile = dist.resolve("receiver-manifest.json")
+        val manifest = groovy.json.JsonSlurper().parse(manifestFile) as Map<*, *>
+        val name = manifest["file"] as String
+        require(name.matches(Regex("PlayCaption-Samsung-[0-9]+\\.[0-9]+\\.[0-9]+-nepodpisany\\.wgt")))
+        val data = dist.resolve(name).readBytes()
+        val hash = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
+        require(manifest["id"] == "PCaption01.PlayCaptionTest" && manifest["platform"] == "tizen")
+        require((manifest["size"] as Number).toLong() == data.size.toLong() && manifest["sha256"] == hash)
+        val target = samsungAssets.get().dir("samsung").asFile.apply { mkdirs() }
+        target.resolve("receiver.wgt").writeBytes(data)
+        manifestFile.copyTo(target.resolve("receiver-manifest.json"), overwrite = true)
+    }
+}
+android.sourceSets.getByName("main").assets.srcDir(samsungAssets)
+tasks.named("preBuild") { dependsOn(prepareSamsungReceiver) }

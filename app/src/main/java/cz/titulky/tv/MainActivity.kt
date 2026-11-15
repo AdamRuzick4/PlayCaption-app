@@ -366,7 +366,7 @@ class MainActivity : Activity() {
         konzole.addView(r)
         konzole.addView(text(t("pripojitPopis"), 14f, TEXT2), odsazeni(top = 6))
         // telefon: najít televizi a převzít od ní spárování s PS5 (bez přihlašování účtu a PINu z PS5)
-        if (telefon && TvProfily(this).platforma != TvPlatforma.WEBOS) {
+        if (telefon && !TvProfily(this).platforma.jenZobrazovac) {
             konzole.addView(tlacitkoZelene(t("prevzitZTv")) { prevzitSparovaniZTv() }, odsazeni(top = 12))
             // nespárovaný telefon a v síti je televize s PlayCaption → přihlašování schovat, ať nikdo neklikne špatně
             if (!udaje.sparovano) Propojeni.hledej(this, 2500) { nalez ->
@@ -782,6 +782,7 @@ class MainActivity : Activity() {
         }
         tvPlatforma?.text = if (lokalni || profil == null) t("tvNastaveniPopis") else when (profil.platforma) {
             TvPlatforma.WEBOS -> "LG webOS"
+            TvPlatforma.SAMSUNG -> "Samsung (Tizen)"
             TvPlatforma.ANDROID_TV -> "Android TV / Google TV"
             else -> t("tvPlatformaNeznama")
         }
@@ -1070,7 +1071,7 @@ class MainActivity : Activity() {
         val sloupec = svisle()
         sloupec.addView(nadpisLogo())
         sloupec.addView(text(t("pripojitKonzoli"), 28f, Color.WHITE, tucne = true), odsazeni(bottom = 16))
-        if (telefon && TvProfily(this).platforma != TvPlatforma.WEBOS) {
+        if (telefon && !TvProfily(this).platforma.jenZobrazovac) {
             val kTv = karta()
             kTv.addView(text(t("maTvNadpis"), 18f, Color.parseColor("#FFC24B"), tucne = true))
             kTv.addView(text(t("maTv"), 16f, Color.WHITE), odsazeni(top = 6))
@@ -1281,7 +1282,7 @@ class MainActivity : Activity() {
         val sloupec = svisle()
         sloupec.addView(nadpisLogo())
         sloupec.addView(text(t("xboxNadpis"), 28f, Color.WHITE, tucne = true), odsazeni(bottom = 16))
-        if (telefon && TvProfily(this).platforma != TvPlatforma.WEBOS) {
+        if (telefon && !TvProfily(this).platforma.jenZobrazovac) {
             val kTv = karta()
             kTv.addView(text(t("maTvNadpis"), 18f, Color.parseColor("#FFC24B"), tucne = true))
             kTv.addView(text(t("maTv"), 16f, Color.WHITE), odsazeni(top = 6))

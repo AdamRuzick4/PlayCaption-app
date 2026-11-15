@@ -4,7 +4,12 @@ import android.content.Context
 import android.content.SharedPreferences
 import java.security.MessageDigest
 
-enum class TvPlatforma { NEZNAMA, ANDROID_TV, WEBOS }
+enum class TvPlatforma {
+    NEZNAMA, ANDROID_TV, WEBOS, SAMSUNG;
+
+    /** LG a Samsung jen zobrazují titulky; přihlášení ke konzoli telefonu předat neumějí. */
+    val jenZobrazovac get() = this == WEBOS || this == SAMSUNG
+}
 
 data class TvProfil(val id: String, val jmeno: String, val ip: String, val platforma: TvPlatforma)
 

@@ -15,6 +15,7 @@ class TvVyber(
     private fun platformaText(p: TvPlatforma) = when (p) {
         TvPlatforma.ANDROID_TV -> "Android TV / Google TV"
         TvPlatforma.WEBOS -> "LG webOS"
+        TvPlatforma.SAMSUNG -> "Samsung (Tizen)"
         TvPlatforma.NEZNAMA -> t("tvPlatformaNeznama")
     }
 
@@ -29,10 +30,14 @@ class TvVyber(
                             televize.platforma = TvPlatforma.values()[n]
                             dialog.dismiss()
                             platformaZmenena()
-                            if (televize.platforma == TvPlatforma.WEBOS) lgPruvodce() else vyberTelevizi()
+                            when (televize.platforma) {
+                                TvPlatforma.WEBOS -> lgPruvodce()
+                                TvPlatforma.SAMSUNG -> samsungPruvodce()
+                                else -> vyberTelevizi()
+                            }
                         }.show()
                     1 -> vyberTelevizi()
-                    2 -> if (televize.platforma == TvPlatforma.WEBOS) lgPruvodce() else android.app.AlertDialog.Builder(activity).setTitle(platformaText(televize.platforma))
+                    2 -> if (televize.platforma == TvPlatforma.WEBOS) lgPruvodce() else if (televize.platforma == TvPlatforma.SAMSUNG) samsungPruvodce() else android.app.AlertDialog.Builder(activity).setTitle(platformaText(televize.platforma))
                         .setMessage(t(when (televize.platforma) {
                             TvPlatforma.ANDROID_TV -> "tvNavodAndroid"
                             else -> "tvNavodNeznamy"
@@ -45,6 +50,7 @@ class TvVyber(
     }
 
     private fun lgPruvodce() = LgPruvodce(activity) { vyberTelevizi() }.ukaz()
+    private fun samsungPruvodce() = SamsungPruvodce(activity) { vyberTelevizi() }.ukaz()
 
     /** Najít televize s PlayCaption v síti a vybrat, kam posílat titulky. */
     private fun vyberTelevizi() {
@@ -60,6 +66,9 @@ class TvVyber(
                 runCatching { hledam.dismiss() }
                 val platforma = televize.platforma
                 val vhodne = seznam.filter { tv ->
+                    // Samsung přijímač se pozná podle vlastního ID; ostatní platformy se řídí profilem jako dosud.
+                    if (SamsungPrijimac.jeSamsung(tv.id)) return@filter platforma == TvPlatforma.NEZNAMA || platforma == TvPlatforma.SAMSUNG
+                    if (platforma == TvPlatforma.SAMSUNG) return@filter false
                     val p = televize.najdi(tv.id)?.platforma ?: TvPlatforma.NEZNAMA
                     platforma == TvPlatforma.NEZNAMA || p == platforma || p == TvPlatforma.NEZNAMA
                 }
@@ -73,9 +82,9 @@ class TvVyber(
                         val tv = vhodne.getOrNull(i)
                         if (tv != null) {
                             fun pripoj() {
-                                this@TvVyber.pripoj(tv, platforma.takeIf { it != TvPlatforma.NEZNAMA })
+                                this@TvVyber.pripoj(tv, platforma.takeIf { it != TvPlatforma.NEZNAMA } ?: TvPlatforma.SAMSUNG.takeIf { SamsungPrijimac.jeSamsung(tv.id) })
                             }
-                            if (platforma != TvPlatforma.NEZNAMA && televize.najdi(tv.id)?.platforma != platforma) {
+                            if (platforma != TvPlatforma.NEZNAMA && platforma != TvPlatforma.SAMSUNG && televize.najdi(tv.id)?.platforma != platforma) {
                                 android.app.AlertDialog.Builder(activity).setTitle(tv.jmeno)
                                     .setMessage(t("tvPotvrditPlatformu").replace("{platforma}", platformaText(platforma)))
                                     .setPositiveButton(t("ano")) { _, _ -> pripoj() }

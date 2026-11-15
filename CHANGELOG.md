@@ -6,6 +6,8 @@
 
 - Story: od tří čekajících replik se časování automaticky exponenciálně zkracuje, nejvýše na polovinu uživatelské doby a ne pod podporovaných 50 %. Platí od další stránky, bez zahazování replik; po odbavení se vrací nastavená rychlost. Stav ukazuje aktivní dohánění. LG aktualizace není potřeba.
 
+- Samsung (Tizen): přijímač titulků sloučen z bestranger/samsungappka do `tizen/` se zachovanou historií. Přijímač 1.3.0 podporuje Příběhový režim a hlásí svou verzi. Android: platforma Samsung, průvodce s Developer Mode, uložení přibaleného nepodepsaného WGT a ověření běžícího přijímače včetně verze. Přímá instalace z Androidu zatím není; důvody a další kroky jsou v `tizen/INSTALACE-Z-ANDROIDU.md`. LG ani Android TV cesta se nemění.
+
 - Story: podle herní přejímky GTA V je základní čtecí doba o 20 % kratší; výchozích 100 % nyní odpovídá předchozím 80 %. Shodný výpočet Android/LG 0.2.1, Standardní režim beze změny.
 
 - Integrační větev Story spojuje správu TV profilů, instalátor a Developer Mode s Android čtecí frontou. LG 0.2.0 podporuje Standardní i Příběhový režim; jeho nabídka, skrytí a lokální test pozastaví Story bez falešného dočtení. Master ani veřejné vydání se tím nemění.

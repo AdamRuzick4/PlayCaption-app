@@ -46,6 +46,11 @@
             android:configChanges="orientation|screenSize|keyboardHidden"/>
 
         <activity
+            android:name=".SamsungExportActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"/>
+
+        <activity
             android:name=".VyvojActivity"
             android:exported="false"/>
 

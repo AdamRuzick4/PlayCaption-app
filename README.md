@@ -10,7 +10,7 @@ PlayCaption čte anglické titulky ze hry, překládá je a zobrazuje česky př
 
 - Android aplikace funguje na **Android TV / Google TV** a na Android telefonech/tabletech.
 - Pro **LG webOS** je dostupný experimentální přijímač titulků z Android telefonu/tabletu: [návod pro LG](webos/NAVOD-LG.md). Vyžaduje Developer Mode; ověřený model je LG C5. Samostatný překlad přímo v LG bez Android zařízení tato verze neumí.
-- Samsung tato verze nepodporuje.
+- Pro **Samsung (Tizen)** je dostupný experimentální přijímač titulků z Android telefonu/tabletu: [návod pro Samsung](tizen/NAVOD-SAMSUNG.md). Vyžaduje Developer Mode a účet Samsung; instalaci zatím provádí externí nástroj, protože Samsung vyžaduje podpis pro konkrétní televizi.
 - Projekt je ve stavu **beta**, sledujte [Releases](https://github.com/AdamRuzick4/PlayCaption-app/releases).
 
 ## Stažení
@@ -78,3 +78,14 @@ CLI se při sestavení získává přes npx; koncový uživatel při místní in
 z APK nepotřebuje počítač ani internetové stahování balíčku.
 Samostatný IPK a ZIP pro ruční instalaci vzniknou také ve `webos/dist/`;
 Adam je může přiložit ke stejnému vydání jako APK. Podrobnosti: [LG build](webos/README.md).
+
+## Samsung v Android aplikaci
+
+Vyber Samsung (Tizen) a projdi průvodcem: zapnutí Developer Mode (průvodce ukáže adresu
+pro pole Host PC IP), uložení přibaleného instalačního souboru a ověření přijímače.
+Přibalený WGT je nepodepsaný, protože Samsung přijme jen balíček podepsaný certifikátem
+účtu Samsung vystaveným pro konkrétní televizi; jeden podepsaný soubor pro všechny vyrobit nejde.
+Přijímač hlásí svou verzi sám, průvodce podle ní řekne, zda je aktuální, starší, nebo novější
+než přibalený. Úspěch se potvrzuje až ohlášením přijímače z televize.
+Podrobnosti: [návod](tizen/NAVOD-SAMSUNG.md), [technický popis](tizen/INSTALACE-Z-ANDROIDU.md),
+[sestavení přijímače](tizen/README.md). `bash gradlew :app:assembleDebug` přibalí WGT automaticky.

@@ -245,7 +245,9 @@ object Propojeni {
     // ================================================================ TELEFON (hledá a posílá)
 
     /** [sparovano]: televize sama je spárovaná s PS5 (null = starší verze, neví se). */
-    data class Televize(val id: String, val jmeno: String, val ip: String, val sparovano: Boolean? = null)
+    data class Televize(val id: String, val jmeno: String, val ip: String, val sparovano: Boolean? = null,
+        /** Verze přijímače, pokud ji ohlášení nese (Samsung od 1.3.0); jinak null = neznámá. */
+        val verze: String? = null)
 
     /**
      * Telefon → televize: zpráva převzetí spárování a čekání na odpověď (víc pokusů, Wi-Fi ztrácí pakety).
@@ -293,7 +295,8 @@ object Propojeni {
                         if (casti.size >= 3 && casti[0] == OHLASENI && casti[1] != Predavani.mojeId) {
                             val ip = p.address.hostAddress ?: continue
                             nalez[casti[1]] = Televize(casti[1], casti[2], ip,
-                                when (casti.getOrNull(3)?.trim()) { "1" -> true; "0" -> false; else -> null })
+                                when (casti.getOrNull(3)?.trim()) { "1" -> true; "0" -> false; else -> null },
+                                SamsungPrijimac.verze(casti.getOrNull(4)))
                         }
                     }
                 }
