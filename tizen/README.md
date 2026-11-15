@@ -3,7 +3,7 @@
 Tizen webová aplikácia pre Samsung TV. Ukáže HDMI vstup s konzolou a nad ním kreslí titulky,
 ktoré posiela Android aplikácia PlayCaption z telefónu alebo tabletu. Je to obdoba LG prijímača
 z priečinka [`webos/`](../webos/README.md). Pôvodne vznikla v repozitári
-[bestranger/samsungappka](https://github.com/bestranger/samsungappka), história je zachovaná.
+[bestranger/samsungappka](https://github.com/bestranger/samsungappka), kde ostáva aj jej staršia história.
 
 - Používateľ: [návod pre Samsung](NAVOD-SAMSUNG.md), vrátane zapnutia Developer Mode.
 - Vývojár: [inštalácia a pripojenie z Androidu](INSTALACE-Z-ANDROIDU.md), certifikáty a čo ešte chýba.
