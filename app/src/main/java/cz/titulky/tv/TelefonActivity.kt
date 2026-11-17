@@ -12,6 +12,12 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import java.util.ArrayDeque
+import java.util.Locale
+import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -22,6 +28,20 @@ import android.widget.TextView
  * Telefon stojí u televize, displej nezhasíná. Zavřením obrazovky se spojení s PS5 ukončí.
  */
 class TelefonActivity : Activity() {
+
+    private data class UryvekTts(
+        val input: String,
+        val output: String,
+        val text: String,
+        val sourceKey: String,
+        val sourceId: Long,
+        val eventVersion: Long,
+        val eventAtMs: Long,
+        val queuedAtMs: Long,
+        val story: Boolean,
+        val utteranceId: String
+    )
+    private data class TtsReadMemory(val sourceKey: String, val output: String, val timeMs: Long, val story: Boolean, val sourceId: Long)
 
     private val ui = Handler(Looper.getMainLooper())
     private val nast by lazy { Nastaveni(this) }
@@ -40,6 +60,29 @@ class TelefonActivity : Activity() {
     private lateinit var segTv: TextView
     private lateinit var segTel: TextView
     private lateinit var tip: TextView
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private var ttsInitGeneration = 0
+    private val frontaPredcitani = ArrayDeque<UryvekTts>()
+    private val nedavnoPredcitane = ArrayDeque<TtsReadMemory>()
+    private val vyreseneVerzeTts = LinkedHashSet<Long>()
+    private var pravePredcita = false
+    private var aktualniUryvek: UryvekTts? = null
+    private var ttsAktualniStartMs = 0L
+    private var ttsAktualniRychlost = 1f
+    private var hlasZapnut: Boolean
+        get() = prefs.getBoolean("hlasTitulkU", false)
+        set(v) { prefs.edit().putBoolean("hlasTitulkU", v).apply() }
+    private var rychlostZakladni: Float
+        get() = prefs.getFloat("rychlostCteni", 1.0f).coerceIn(0.5f, 2.0f)
+        set(v) { prefs.edit().putFloat("rychlostCteni", v.coerceIn(0.5f, 2.0f)).apply() }
+    private var posledniVerzeTts = -1L
+    private val ttsUdalostHandler: () -> Unit = {
+        ui.post {
+            if (!isFinishing && !isDestroyed) zpracujTtsAktualni()
+        }
+    }
+    private var hlasTlacitko: TextView? = null
     private lateinit var horniPanel: View
     /** Tlačítko ⇄ Xbox / ⇄ PS5 (jen když jsou zapnuté obě konzole). */
     private var prepnoutKonzoli: TextView? = null
@@ -72,6 +115,8 @@ class TelefonActivity : Activity() {
         Propojeni.Vysilac.trvaleOblast = Volby.zapnuto && Volby.ukazatNaTv
         Propojeni.Vysilac.upravujiOblast(Volby.oblast, ukazat = false)
         postav()
+        TelefonTitulky.onTtsEvent = ttsUdalostHandler
+        inicializujTts()
         // spuštěno rovnou na šířku (jen telefon) → hned černá obrazovka s titulky
         prepniSirku(resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE &&
             Propojeni.Vysilac.cilIp == null)
@@ -89,6 +134,111 @@ class TelefonActivity : Activity() {
         ui.postDelayed(hledaniTv, 500)
         // převzít PS5 – když je připojená televize, sama se odpojí
         runCatching { startForegroundService(Intent(this, RemotePlayService::class.java).putExtra(RemotePlayService.EXTRA_PREVZIT, true)) }
+    }
+
+    private fun inicializujTts() {
+        val vybranyEngine = prefs.getString("ttsEnginePackage", "").orEmpty()
+        val generace = ++ttsInitGeneration
+        ttsReady = false
+        val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE).setPackage(vybranyEngine)
+        if (vybranyEngine.isNotBlank() && packageManager.resolveService(intent, 0) == null) {
+            prepniNaVychoziTts("Vybraný TTS engine už není dostupný; používám výchozí engine Androidu")
+            return
+        }
+        val listener = TextToSpeech.OnInitListener { status ->
+            // Odložit callback, aby už bylo pole tts přiřazené i na enginech s rychlou inicializací.
+            ui.post {
+                if (generace != ttsInitGeneration) return@post
+                if (status != TextToSpeech.SUCCESS) {
+                    if (vybranyEngine.isNotBlank()) {
+                        prepniNaVychoziTts("Vybraný TTS engine se nespustil; používám výchozí engine Androidu")
+                    } else {
+                        ttsReady = false
+                        Zaznam.zapisTts(this, "ERROR: výchozí TTS engine se nespustil")
+                    }
+                    return@post
+                }
+                val engine = tts ?: return@post
+                engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    private fun dokoncit(utteranceId: String?, vysledek: String) {
+                        val aktualniId = aktualniUryvek?.utteranceId
+                        if (utteranceId == null || utteranceId != aktualniId) {
+                            Zaznam.zapisTts(this@TelefonActivity,
+                                "STALE_CALLBACK result=$vysledek utterance=${utteranceId ?: "none"} active=${aktualniId ?: "none"}")
+                            return
+                        }
+                        dokonciTtsUryvek(vysledek, utteranceId)
+                    }
+                    override fun onStart(utteranceId: String?) {
+                        ui.post {
+                        val polozka = aktualniUryvek
+                        if (polozka != null && polozka.utteranceId == utteranceId) {
+                            ttsAktualniStartMs = android.os.SystemClock.elapsedRealtime()
+                            zapisRozhodnutiTts("PLAYING", "Android TTS potvrdil start", polozka.input,
+                            polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+                        }
+                        }
+                    }
+                    override fun onDone(utteranceId: String?) {
+                        dokoncit(utteranceId, "DONE")
+                    }
+                    @Deprecated("Deprecated in Android")
+                    override fun onError(utteranceId: String?) {
+                        dokoncit(utteranceId, "ERROR Android TTS")
+                    }
+                    override fun onError(utteranceId: String?, errorCode: Int) {
+                        dokoncit(utteranceId, "ERROR Android TTS code=$errorCode")
+                    }
+                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                        dokoncit(utteranceId, "STOP interrupted=$interrupted")
+                    }
+                })
+                val vysledek = engine.setLanguage(Locale.forLanguageTag("cs-CZ"))
+                if (vysledek == TextToSpeech.LANG_MISSING_DATA || vysledek == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    if (vybranyEngine.isNotBlank()) {
+                        prepniNaVychoziTts("Vybraný engine nemá češtinu; používám výchozí engine Androidu")
+                    } else {
+                        ttsReady = false
+                        android.widget.Toast.makeText(this, "Český hlas TTS není dostupný", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                } else {
+                    ttsReady = true
+                    val nazev = vybranyEngine.ifBlank {
+                        runCatching { engine.defaultEngine }.getOrNull().orEmpty().ifBlank { "výchozí Android" }
+                    }
+                    val verzeAplikace = runCatching { packageManager.getPackageInfo(packageName, 0).versionName }.getOrNull()
+                    Zaznam.zapisTts(this, "READY app=$verzeAplikace; engine=$nazev; locale=cs-CZ")
+                    if (hlasZapnut) zpracujTtsAktualni(force = true)
+                }
+            }
+        }
+        val novyEngine = runCatching {
+            if (vybranyEngine.isBlank()) TextToSpeech(this, listener)
+            else TextToSpeech(this, listener, vybranyEngine)
+        }.getOrNull()
+        if (novyEngine == null) {
+            if (vybranyEngine.isNotBlank()) {
+                ttsInitGeneration++
+                prefs.edit().remove("ttsEnginePackage").apply()
+                android.widget.Toast.makeText(this, "TTS engine se nepodařilo otevřít; používám výchozí engine Androidu", android.widget.Toast.LENGTH_LONG).show()
+                ui.post { inicializujTts() }
+            } else {
+                ttsReady = false
+                Zaznam.zapisTts(this, "ERROR: nepodařilo se vytvořit TTS engine")
+            }
+        } else {
+            tts = novyEngine
+        }
+    }
+
+    private fun prepniNaVychoziTts(zprava: String) {
+        ttsInitGeneration++
+        ttsReady = false
+        tts?.shutdown()
+        tts = null
+        prefs.edit().remove("ttsEnginePackage").apply()
+        android.widget.Toast.makeText(this, zprava, android.widget.Toast.LENGTH_LONG).show()
+        inicializujTts()
     }
 
     override fun onResume() {
@@ -213,6 +363,9 @@ class TelefonActivity : Activity() {
     override fun onDestroy() {
         if (displejHlidam) { runCatching { unregisterReceiver(displej) }; displejHlidam = false }
         if (isFinishing) zastav()
+        if (TelefonTitulky.onTtsEvent === ttsUdalostHandler) TelefonTitulky.onTtsEvent = null
+        ttsInitGeneration++
+        runCatching { tts?.stop(); tts?.shutdown() }; tts = null; ttsReady = false
         super.onDestroy()
     }
 
@@ -734,7 +887,7 @@ class TelefonActivity : Activity() {
         stav = TextView(this).apply {
             textSize = 13f
             setTextColor(Color.parseColor("#BBBBBB"))
-            maxLines = 2
+            maxLines = 3
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
         val zastavit = TextView(this).apply {
@@ -779,7 +932,18 @@ class TelefonActivity : Activity() {
             }, LinearLayout.LayoutParams(dp(84), ViewGroup.LayoutParams.WRAP_CONTENT))
             // mezera – tlačítka doprava
             addView(View(this@TelefonActivity), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(tvTlacitko, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) })
+            hlasTlacitko = TextView(this@TelefonActivity).apply {
+                textSize = 13f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(7), dp(8), dp(7), dp(8))
+                background = zaobleni(if (hlasZapnut) Color.parseColor("#16833A") else Color.parseColor("#333338"))
+                setTextColor(Color.WHITE)
+                text = if (hlasZapnut) "🔊 Hlas" else "🔇 Hlas"
+                contentDescription = "Nastavení hlasu a rychlosti předčítání"
+                setOnClickListener { ukazNastaveniPredcitani() }
+            }
+            addView(tvTlacitko, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(4) })
+            addView(hlasTlacitko, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(4) })
             addView(zastavit)
         }
 
@@ -985,6 +1149,346 @@ class TelefonActivity : Activity() {
     }
 
     /** Jméno postavy ("Vivian:") v barvě jako ve hře, zbytek bíle. */
+    private fun nastavHlasZapnut(zapnuto: Boolean) {
+        hlasZapnut = zapnuto
+        hlasTlacitko?.apply {
+            text = if (hlasZapnut) "🔊 Hlas" else "🔇 Hlas"
+            background = zaobleni(if (hlasZapnut) Color.parseColor("#16833A") else Color.parseColor("#333338"))
+        }
+        if (!hlasZapnut) {
+            while (frontaPredcitani.isNotEmpty()) {
+                val polozka = frontaPredcitani.removeFirst()
+                zapisRozhodnutiTts("DROP", "uživatel vypnul předčítání", polozka.input,
+                    polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+            }
+            aktualniUryvek?.let { polozka ->
+                zapisRozhodnutiTts("STOP", "uživatel vypnul předčítání během přehrávání", polozka.input,
+                    polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+            }
+            pravePredcita = false
+            aktualniUryvek = null
+            ttsAktualniStartMs = 0L
+            tts?.stop()
+        } else zpracujTtsAktualni(force = true)
+    }
+
+    private fun ukazNastaveniPredcitani() {
+        val prepinac = Switch(this).apply {
+            text = "Předčítání hlasem"
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            isChecked = hlasZapnut
+            setOnCheckedChangeListener { _, zapnuto -> nastavHlasZapnut(zapnuto) }
+        }
+        val popis = TextView(this).apply {
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+        }
+        val posuvnik = SeekBar(this).apply {
+            max = 150
+            progress = ((rychlostZakladni - 0.5f) * 100f).toInt().coerceIn(0, max)
+        }
+        fun obnov(hodnota: Float) {
+            rychlostZakladni = hodnota.coerceIn(0.5f, 2.0f)
+            popis.text = "Rychlost předčítání: ${String.format(Locale.getDefault(), "%.1f", rychlostZakladni)}×"
+        }
+        posuvnik.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                obnov(0.5f + progress / 100f)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        val obsah = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(12), dp(24), dp(4))
+            addView(prepinac)
+            addView(TextView(this@TelefonActivity).apply {
+                text = "Ruční rychlost lze nastavit od 0,5× do 2,0×. Dohánění násobí zvolenou rychlost až 2× (nejvýše 3,0×). Tempo se mění při začátku dalšího úryvku; po dohnání se vrací na slider. Standardní režim může vypustit příliš staré titulky."
+                textSize = 14f
+                setTextColor(Color.LTGRAY)
+                setPadding(0, dp(10), 0, dp(4))
+            })
+            addView(popis)
+            addView(posuvnik)
+            addView(TextView(this@TelefonActivity).apply {
+                text = "Zobrazit a exportovat TTS diagnostiku"
+                textSize = 14f
+                setTextColor(Color.parseColor("#8FC7FF"))
+                setPadding(0, dp(12), 0, dp(4))
+                isFocusable = true
+                setOnClickListener { Zaznam.ukaz(this@TelefonActivity) }
+            })
+        }
+        obnov(rychlostZakladni)
+        val scroll = android.widget.ScrollView(this).apply { addView(obsah) }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Nastavení hlasu")
+            .setView(scroll)
+            .setPositiveButton("Uložit", null)
+            .show()
+    }
+
+    /** Do TTS pustí až konečný překlad a spojí jej s anglickým OCR vstupem. */
+    private fun zpracujTtsAktualni(force: Boolean = false) {
+        val verze = TelefonTitulky.verzeTtsUdalosti
+        if (!force && verze == posledniVerzeTts) return
+        posledniVerzeTts = verze
+        val text = TelefonTitulky.textProTts.replace(Regex("\\s+"), " ").trim()
+        val vstup = TelefonTitulky.vstupOcr
+        val idOcr = TelefonTitulky.idOcr
+        val deduplikovat = TelefonTitulky.deduplikovatTts
+        val casUdalosti = TelefonTitulky.casTtsUdalostiMs.takeIf { it > 0L }
+            ?: android.os.SystemClock.elapsedRealtime()
+        if (verze in vyreseneVerzeTts) {
+            zapisRozhodnutiTts("DROP", "duplicitní zpracování stejné události v#$verze", vstup, text, idOcr, casUdalosti)
+            return
+        }
+        if (text.isBlank()) {
+            vyresTtsVerzi(verze)
+            zapisRozhodnutiTts("SKIP", "prázdný výstup", vstup, text, idOcr, casUdalosti)
+            return
+        }
+        if (!TelefonTitulky.pripravenoProTts) {
+            vyresTtsVerzi(verze)
+            zapisRozhodnutiTts("SKIP", "překlad je jen náhled, není dokončený", vstup, text, idOcr, casUdalosti)
+            return
+        }
+        if (!hlasZapnut) {
+            zapisRozhodnutiTts("SKIP", "hlas je vypnutý", vstup, text, idOcr, casUdalosti)
+            return
+        }
+        if (!ttsReady) {
+            zapisRozhodnutiTts("WAIT", "TTS engine ještě není připraven", vstup, text, idOcr, casUdalosti)
+            return
+        }
+        val zpozdeni = if (deduplikovat) 40L else 0L
+        if (zpozdeni > 0) zapisRozhodnutiTts("WAIT", "stabilizace ${zpozdeni}ms", vstup, text, idOcr, casUdalosti)
+        val runnable = Runnable {
+            if (!hlasZapnut) {
+                zapisRozhodnutiTts("SKIP", "hlas se vypnul před zařazením", vstup, text, idOcr, casUdalosti)
+                return@Runnable
+            }
+            if (!ttsReady) {
+                zapisRozhodnutiTts("WAIT", "TTS engine není připraven při zařazení", vstup, text, idOcr, casUdalosti)
+                return@Runnable
+            }
+            val aktualniVstup = TelefonTitulky.vstupOcr
+            if (deduplikovat && TelefonTitulky.verzeTtsUdalosti != verze &&
+                TtsRevisionPolicy.relation(vstup, aktualniVstup, false) in
+                    setOf(TtsRevisionPolicy.Relation.SAME, TtsRevisionPolicy.Relation.EXTENDED)) {
+                vyresTtsVerzi(verze)
+                zapisRozhodnutiTts("DROP", "před zařazením přišla novější OCR verze stejného titulku", vstup, text, idOcr, casUdalosti)
+                return@Runnable
+            }
+            vlozDoFronty(text, vstup, idOcr, verze, casUdalosti, deduplikovat)
+        }
+        if (zpozdeni == 0L) ui.post(runnable) else ui.postDelayed(runnable, zpozdeni)
+    }
+
+    private fun vyresTtsVerzi(verze: Long) {
+        vyreseneVerzeTts.add(verze)
+        while (vyreseneVerzeTts.size > 96) vyreseneVerzeTts.remove(vyreseneVerzeTts.first())
+    }
+
+    private fun bezJmena(text: String): String = text.lines().joinToString(" ") {
+        it.replace(Regex("^[A-Z][A-Za-z0-9 .'-]{1,24}:\\s*"), "").trim()
+    }.replace(Regex("\\s+"), " ").trim()
+
+    private fun UryvekTts.proKontrolu() = TtsRevisionPolicy.Peer(sourceKey, bezJmena(output), text, story)
+
+    private fun jizCteneProKontrolu(): List<TtsRevisionPolicy.Peer> {
+        val ted = android.os.SystemClock.elapsedRealtime()
+        val vysledek = mutableListOf<TtsRevisionPolicy.Peer>()
+        aktualniUryvek?.let { vysledek += it.proKontrolu() }
+        nedavnoPredcitane.reversed().filter { ted - it.timeMs in 0L..12_000L }.forEach {
+            vysledek += TtsRevisionPolicy.Peer(it.sourceKey, bezJmena(it.output), story = it.story)
+        }
+        return vysledek
+    }
+
+    /** Speech history takes precedence over queued OCR fragments. */
+    private fun zaradRevizi(polozka: UryvekTts): Boolean {
+        val seznam = frontaPredcitani.toMutableList()
+        val plan = TtsRevisionPolicy.plan(polozka.proKontrolu(), seznam.map { it.proKontrolu() }, jizCteneProKontrolu())
+        when (plan.action) {
+            TtsRevisionPolicy.Action.NEW -> return false
+            TtsRevisionPolicy.Action.DROP -> Unit
+            TtsRevisionPolicy.Action.CONTINUE -> frontaPredcitani.addLast(polozka.copy(text = requireNotNull(plan.text)))
+            TtsRevisionPolicy.Action.REPLACE -> {
+                val stara = seznam[plan.pendingIndex]
+                seznam[plan.pendingIndex] = polozka.copy(text = requireNotNull(plan.text),
+                    eventAtMs = stara.eventAtMs, queuedAtMs = stara.queuedAtMs)
+                frontaPredcitani.clear()
+                frontaPredcitani.addAll(seznam)
+            }
+        }
+        zapisRozhodnutiTts(plan.action.name, plan.reason, polozka.input, polozka.output,
+            polozka.sourceId, polozka.eventAtMs, plan.text.orEmpty())
+        return true
+    }
+
+    private fun zapisRozhodnutiTts(akce: String, duvod: String, vstup: String, vystup: String,
+        idOcr: Long, casUdalosti: Long, cteni: String = "") {
+        val ted = android.os.SystemClock.elapsedRealtime()
+        val zpozdeni = (ted - casUdalosti).coerceAtLeast(0L)
+        fun logText(s: String): String {
+            val oneLine = s.replace("\r", " ").replace("\n", " ↵ ").replace("\"", "'")
+            return if (oneLine.length <= 4_000) oneLine else oneLine.take(4_000) + "…[zkráceno]"
+        }
+        Zaznam.zapisTts(this,
+            "OCR#$idOcr $akce reason=\"${logText(duvod)}\" INPUT=\"${logText(vstup)}\" OUTPUT=\"${logText(vystup)}\" READ=\"${logText(cteni)}\" lag=${zpozdeni}ms ${stavFrontyTts(ted)}")
+    }
+
+    private fun odhadDobyCteniMs(text: String, rychlost: Float): Long {
+        val slova = text.trim().split(Regex("\\s+")).count { it.isNotBlank() }.coerceAtLeast(1)
+        val pauzy = text.count { it in ".,;:!?…" }
+        return ((slova * 360L + pauzy * 90L) / rychlost.coerceIn(0.5f, 3.0f)).toLong()
+    }
+
+    private fun odhadFrontyMs(ted: Long = android.os.SystemClock.elapsedRealtime()): Long {
+        val beziciZbyva = aktualniUryvek?.let {
+            (odhadDobyCteniMs(it.text, ttsAktualniRychlost) - (ted - ttsAktualniStartMs).coerceAtLeast(0L)).coerceAtLeast(0L)
+        } ?: 0L
+        val cekajici = frontaPredcitani.sumOf { odhadDobyCteniMs(it.text, rychlostZakladni) }
+        return beziciZbyva + cekajici
+    }
+
+    private fun stavFrontyTts(ted: Long = android.os.SystemClock.elapsedRealtime()): String {
+        val slova = frontaPredcitani.sumOf { it.text.trim().split(Regex("\\s+")).count(String::isNotBlank) }
+        val nejstarsi = frontaPredcitani.firstOrNull()?.let { (ted - it.eventAtMs).coerceAtLeast(0L) }
+            ?: aktualniUryvek?.let { (ted - it.eventAtMs).coerceAtLeast(0L) } ?: 0L
+        return "queue=${frontaPredcitani.size} words=$slova active=${aktualniUryvek?.sourceId ?: "none"} " +
+            "oldestLag=${nejstarsi}ms backlog~${odhadFrontyMs(ted) / 1000.0}s"
+    }
+
+    private fun stavTtsProUzivatele(): String {
+        val ted = android.os.SystemClock.elapsedRealtime()
+        val polozka = aktualniUryvek ?: frontaPredcitani.firstOrNull()
+        val lag = polozka?.let { ((ted - it.eventAtMs).coerceAtLeast(0L) / 1000.0) } ?: 0.0
+        val backlog = odhadFrontyMs(ted) / 1000.0
+        val tempo = if (pravePredcita) ttsAktualniRychlost else rychlostZakladni
+        return "TTS: fronta ${frontaPredcitani.size} · zpoždění ~${String.format(Locale.US, "%.1f", lag)}s · " +
+            "dočtení ~${String.format(Locale.US, "%.1f", backlog)}s · ${String.format(Locale.US, "%.1f", tempo)}×"
+    }
+
+    private fun vlozDoFronty(preklad: String, vstupOcr: String, idOcr: Long, verze: Long,
+        casUdalosti: Long, deduplikovat: Boolean) {
+        if (verze in vyreseneVerzeTts) {
+            zapisRozhodnutiTts("DROP", "událost v#$verze už byla vyřešena", vstupOcr, preklad, idOcr, casUdalosti)
+            return
+        }
+        val plny = preklad.replace(Regex("\\s+"), " ").trim()
+        val zdrojKlic = if (deduplikovat) OcrDedup.klic(vstupOcr) else vstupOcr
+        val bezJmenMluvcich = bezJmena(preklad)
+        if (bezJmenMluvcich.isBlank()) {
+            vyresTtsVerzi(verze)
+            zapisRozhodnutiTts("SKIP", "výstup obsahuje pouze jméno mluvčího", vstupOcr, plny, idOcr, casUdalosti)
+            return
+        }
+        val polozka = UryvekTts(
+            input = vstupOcr,
+            output = plny,
+            text = bezJmenMluvcich,
+            sourceKey = zdrojKlic,
+            sourceId = idOcr,
+            eventVersion = verze,
+            eventAtMs = casUdalosti,
+            queuedAtMs = android.os.SystemClock.elapsedRealtime(),
+            story = !deduplikovat,
+            utteranceId = "playcaption-ocr$idOcr-${System.nanoTime()}"
+        )
+        vyresTtsVerzi(verze)
+        if (!zaradRevizi(polozka)) {
+            frontaPredcitani.addLast(polozka)
+            zapisRozhodnutiTts("ENQUEUE", "nový titulek", vstupOcr, plny, idOcr, casUdalosti, polozka.text)
+        }
+        zpracujDohaneniFronty()
+        spustDalsiUryvek()
+    }
+
+    private fun zpracujDohaneniFronty() {
+        val ted = android.os.SystemClock.elapsedRealtime()
+        fun vypust(polozka: UryvekTts, duvod: String) {
+            frontaPredcitani.remove(polozka)
+            zapisRozhodnutiTts("DROP", duvod, polozka.input, polozka.output,
+                polozka.sourceId, polozka.eventAtMs, polozka.text)
+        }
+        frontaPredcitani.filter { !it.story && ted - it.eventAtMs > 10_000L }.forEach { polozka ->
+            vypust(polozka, "čekající titulek je starší než 10 s; přednost dostává aktuálnější dialog")
+        }
+        fun nejstarsiStandardni() = frontaPredcitani.firstOrNull { !it.story }
+        while (frontaPredcitani.count { !it.story } > 4) {
+            nejstarsiStandardni()?.let { vypust(it, "fronta Standardního režimu překročila 4 čekající titulky") }
+        }
+        while (frontaPredcitani.count { !it.story } > 2 && odhadFrontyMs(ted) > 18_000L) {
+            nejstarsiStandardni()?.let {
+                vypust(it, "odhad fronty překročil 18 s; zkracuji zpoždění a ponechávám novější titulky")
+            }
+        }
+    }
+
+    /** Vlastní fronta zabrání tomu, aby nový titulek přerušil právě čtenou větu. */
+    private fun spustDalsiUryvek() {
+        if (!ttsReady || pravePredcita || !hlasZapnut) return
+        zpracujDohaneniFronty()
+        // The preceding utterance may have finished while this item was waiting.
+        // Recheck coverage at the actual playback boundary, not just on enqueue.
+        while (frontaPredcitani.isNotEmpty() &&
+            TtsRevisionPolicy.covered(frontaPredcitani.first().proKontrolu(), jizCteneProKontrolu())) {
+            val dup = frontaPredcitani.removeFirst()
+            zapisRozhodnutiTts("DROP", "kontrola před startem: obsah už byl přečten", dup.input,
+                dup.output, dup.sourceId, dup.eventAtMs, dup.text)
+        }
+        if (frontaPredcitani.isEmpty()) return
+        val polozka = frontaPredcitani.removeFirst()
+        aktualniUryvek = polozka
+        ttsAktualniStartMs = android.os.SystemClock.elapsedRealtime()
+        ttsAktualniRychlost = rychlostZakladni
+        pravePredcita = true
+        val odhadZpozdeni = (ttsAktualniStartMs - polozka.eventAtMs).coerceAtLeast(0L)
+        val backlog = odhadFrontyMs(ttsAktualniStartMs)
+        val rychlost = TtsRevisionPolicy.rate(rychlostZakladni, odhadZpozdeni, backlog)
+        ttsAktualniRychlost = rychlost
+        zapisRozhodnutiTts("CATCHUP", "základ ${rychlostZakladni}x; věk ${odhadZpozdeni}ms; fronta ~${backlog}ms → tempo ${rychlost}x",
+            polozka.input, polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+        val vysledek = runCatching {
+            tts?.setSpeechRate(rychlost)
+            zapisRozhodnutiTts("STARTING", "Android engine rate=${rychlost}x", polozka.input,
+                polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+            tts?.speak(polozka.text, TextToSpeech.QUEUE_ADD, null, polozka.utteranceId)
+        }.getOrNull()
+        if (vysledek != TextToSpeech.SUCCESS) {
+            zapisRozhodnutiTts("ERROR", "Android speak status=$vysledek", polozka.input,
+                polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+            dokonciTtsUryvek("ERROR speak status=$vysledek")
+        }
+    }
+
+    private fun dokonciTtsUryvek(vysledek: String = "DONE", expectedId: String? = aktualniUryvek?.utteranceId) {
+        ui.post {
+            // Engines may deliver multiple terminal callbacks. Recheck on the UI thread so
+            // a late callback cannot finish the next utterance and start overlapping speech.
+            if (expectedId == null || aktualniUryvek?.utteranceId != expectedId) return@post
+            val polozka = aktualniUryvek
+            if (polozka != null) {
+                zapisRozhodnutiTts(vysledek, "přehrávání skončilo", polozka.input,
+                    polozka.output, polozka.sourceId, polozka.eventAtMs, polozka.text)
+                if (vysledek.startsWith("DONE")) {
+                    nedavnoPredcitane.addLast(TtsReadMemory(polozka.sourceKey, polozka.output,
+                        android.os.SystemClock.elapsedRealtime(), polozka.story, polozka.sourceId))
+                    while (nedavnoPredcitane.size > 24) nedavnoPredcitane.removeFirst()
+                }
+            }
+            pravePredcita = false
+            aktualniUryvek = null
+            ttsAktualniStartMs = 0L
+            ttsAktualniRychlost = rychlostZakladni
+            spustDalsiUryvek()
+        }
+    }
+
     private fun obarviJmena(text: String, barvy: IntArray?): CharSequence {
         if (barvy == null || barvy.none { it != 0 }) return text
         val sb = android.text.SpannableStringBuilder(text)
@@ -1028,6 +1532,8 @@ class TelefonActivity : Activity() {
             stav.text = if (!RemotePlayService.bezi && (duvod.contains("ukončeno", true) || duvod.contains("✘")))
                 t(k) + "\n" + duvod else t(k)
             if (nast.pribehovy) stav.append("\n" + RemotePlayService.pribehStav)
+            if (hlasZapnut && (pravePredcita || frontaPredcitani.isNotEmpty()))
+                stav.append("\n" + stavTtsProUzivatele())
             tecka.background = zaobleni(barva)
             prepnoutKonzoli?.let { b ->
                 val ukazat = RemotePlayService.obeZapnute && RemotePlayUdaje(this@TelefonActivity).sparovano &&
@@ -1065,6 +1571,8 @@ class TelefonActivity : Activity() {
                 }
                 posledni = null
             }
+            // Hlas běží i při posílání titulků do TV, kdy telefon zobrazuje jen stav a nastavení.
+            zpracujTtsAktualni()
             if (doTv) {
                 val s = t("tvBeziKratce")
                 if (titulek.text.toString() != s) {

@@ -82,6 +82,7 @@ class RemotePlayService : Service() {
     @Volatile private var pribehZacal = false
     private var pribehAktualni: CteciFronta.Stranka? = null
     private var pribehLokalni: CteciFronta.Token? = null
+    private var pribehTtsKlic: String? = null
     private var pribehChyba = ""
     private var pribehPristiPokus = 0L
     private val pribeh = PribehovaRelace({ text, ok, chyba ->
@@ -101,7 +102,7 @@ class RemotePlayService : Service() {
                 Propojeni.Vysilac.rozvrhPribehu(), intArrayOf())) }
             sit.close()
         }
-        pribehSpojeni = null; pribehAktualni = null; pribehLokalni = null; pribehChyba = ""
+        pribehSpojeni = null; pribehAktualni = null; pribehLokalni = null; pribehTtsKlic = null; pribehChyba = ""
         pribehZacal = false
         pribehPristiPokus = 0
         Propojeni.Vysilac.pribehRidi = false
@@ -119,7 +120,7 @@ class RemotePlayService : Service() {
         }
         val aktivni = chcePribeh() && bezi
         if (aktivni != pribehBylAktivni || (zmena && pribehBylAktivni)) {
-            pribeh.reset(); pribehAktualni = null; pribehLokalni = null
+            pribeh.reset(); pribehAktualni = null; pribehLokalni = null; pribehTtsKlic = null
             pribehZacal = false
             if (zmena || !aktivni) {
                 platnostPrekladu.zrus()
@@ -185,14 +186,31 @@ class RemotePlayService : Service() {
                     }
                     Propojeni.Vysilac.pribehRidi = pribehZacal
                     sit?.zprava = zprava
+                    // Publish speech only after the initial Standard → Story reset above.
+                    val klicTts = obsah?.let { "${pribehId(it.token)}#${it.index}" }
+                    if (klicTts != pribehTtsKlic) {
+                        pribehTtsKlic = klicTts
+                        if (obsah == null) TelefonTitulky.nastavPouzeProTts("", "", System.nanoTime(), pripraveno = false)
+                        else TelefonTitulky.nastavPouzeProTts(obsah.text, "pribeh:$klicTts", System.nanoTime())
+                    }
                     pribehStav = when { pribehChyba.isNotEmpty() -> pribehChyba
                         ack == null -> "Příběh: čekám na potvrzení přijímače…"
                         pauza -> "Příběh: pozastaveno kvůli volbám · čeká ${pribeh.pocet}"
                         else -> "Příběh: čtecí fronta ${pribeh.pocet}$dohanel" }
                 } else {
-                    if (p?.token != pribehLokalni) {
+                    val klicTts = p?.let { "${pribehId(it.token)}#${it.index}" }
+                    if (klicTts != pribehTtsKlic) {
+                        pribehTtsKlic = klicTts
                         pribehLokalni = p?.token
-                        TelefonTitulky.nastav(p?.text ?: "", p?.let { it.doMs - ted } ?: 0, p?.let { pribeh.barvy(it.token) })
+                        TelefonTitulky.nastav(
+                            p?.text ?: "",
+                            p?.let { it.doMs - ted } ?: 0,
+                            p?.let { pribeh.barvy(it.token) },
+                            p?.let { "pribeh:$klicTts" } ?: "",
+                            System.nanoTime(),
+                            p != null,
+                            deduplikovat = false
+                        )
                     }
                     pribehStav = if (pribehChyba.isNotEmpty()) pribehChyba else "Příběh: čtecí fronta ${pribeh.pocet}$dohanel"
                 }
@@ -1184,14 +1202,36 @@ class RemotePlayService : Service() {
         prekladac.nastavJazyk(cil)
         ctecky.forEach { it.cilovyJazyk = cil }
         var dobryHotov = false
+        // Speech must identify the same complete sentence that was translated, including
+        // the previous subtitle when the game splits a sentence across screens.
+        val zdrojPrekladu = repliky.joinToString("\n")
         fun ukazJestli(cesky: String, dobry: Boolean) {
-            if (!bezi || !nast.dialogy || !platnostPrekladu.plati(token)) return
-            if (nast.jazykNeboCs != cil || oblast != (rucniOblast()?.joinToString(",") ?: "auto")) return
-            if (cislo < posledniUkazany) return // mezitím se ukázala novější replika
+            val duvodOdmitnuti = when {
+                !bezi -> "služba zastavena"
+                !nast.dialogy -> "dialogy vypnuty"
+                !platnostPrekladu.plati(token) -> "překlad zneplatněn novějším OCR, zmizením titulku nebo změnou relace"
+                nast.jazykNeboCs != cil -> "změna jazyka"
+                oblast != (rucniOblast()?.joinToString(",") ?: "auto") -> "změna oblasti OCR"
+                cislo < posledniUkazany -> "novější replika už zobrazena"
+                else -> null
+            }
+            if (duvodOdmitnuti != null) {
+                if (dobry && telefon) {
+                    fun logText(s: String) = s.replace("\n", " ↵ ").replace('"', '\'').take(4_000)
+                    Zaznam.zapisTts(this, "OCR#$cislo TRANSLATION_REJECTED reason=\"$duvodOdmitnuti\" " +
+                        "INPUT=\"${logText(zdrojPrekladu)}\" OUTPUT=\"${logText(cesky)}\"")
+                }
+                return
+            }
             if (!dobry && dobryHotov) return     // rychlý překlad přišel až po dobrém → nic
             if (dobry) dobryHotov = true
             posledniUkazany = cislo
-            ukazCesky(cesky, box, radku, barvyJmen)
+            if (dobry && telefon) {
+                fun logText(s: String) = s.replace("\n", " ↵ ").replace('"', '\'').take(4_000)
+                Zaznam.zapisTts(this, "OCR#$cislo TRANSLATION_SOURCE joined=$spojeno " +
+                    "RAW=\"${logText(surove.joinToString("\n"))}\" INPUT=\"${logText(zdrojPrekladu)}\"")
+            }
+            ukazCesky(cesky, box, radku, barvyJmen, zdrojPrekladu, cislo, dobry)
         }
         // 1) hned rychlý překlad z televize (~0,2 s), 2) pak ho nahradí lepší z Googlu
         // rychlý překlad ukázat, jen když Google do 0,15 s neodpoví – jinak by titulek "problikl"
@@ -1245,11 +1285,11 @@ class RemotePlayService : Service() {
     private var ukazanaDelka = 0
     private val schovatCesky = Runnable { ukaz("", 0) }
 
-    private fun ukazCesky(cesky: String, box: FloatArray?, radku: Int, barvyJmen: IntArray) {
+    private fun ukazCesky(cesky: String, box: FloatArray?, radku: Int, barvyJmen: IntArray, vstupOcr: String, cisloOcr: Long, finalniPreklad: Boolean) {
         ui.removeCallbacks(schovatCesky)
         if (ukazanoKdy == 0L || System.currentTimeMillis() - ukazanoKdy > 400) ukazanoKdy = System.currentTimeMillis()
         ukazanaDelka = cesky.length
-        ukaz(cesky, 15000, box, radku, barvyJmen)
+        ukaz(cesky, 15000, box, radku, barvyJmen, vstupOcr, cisloOcr, finalniPreklad)
     }
 
     /**
@@ -2172,9 +2212,9 @@ class RemotePlayService : Service() {
     /** Šířka obrazu z Xboxu (720p = 1280) – čte se pak stejně velké písmo jako u PS5, ne větší a pomalejší. */
     @Volatile private var sirkaXbox = 0
 
-    private fun ukaz(text: String, doba: Long = 6000, box: FloatArray? = null, radku: Int = 1, barvyJmen: IntArray? = null) {
+    private fun ukaz(text: String, doba: Long = 6000, box: FloatArray? = null, radku: Int = 1, barvyJmen: IntArray? = null, vstupOcr: String = "", cisloOcr: Long = 0L, pripravenoProTts: Boolean = false) {
         if (chcePribeh() && (Propojeni.Vysilac.cilIp == null || pribehZacal)) return
-        if (telefon) { TelefonTitulky.nastav(text, doba, barvyJmen); return }
+        if (telefon) { TelefonTitulky.nastav(text, doba, barvyJmen, vstupOcr, cisloOcr, pripravenoProTts); return }
         val i = Intent(this, OverlayService::class.java)
             .setAction(OverlayService.ACTION_SET_TEXT)
             .putExtra(OverlayService.EXTRA_TEXT, text)

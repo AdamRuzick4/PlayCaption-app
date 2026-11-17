@@ -1,0 +1,37 @@
+# Předčítání titulků na telefonu
+
+Přeneseno z uživatelské testovací větve PlayCaption 0.21.23 do aktuálního masteru. Číslování veřejných vydání ani podpis aplikace tato změna neurčuje.
+
+## Použití
+
+V hlavní mobilní nabídce vyberte **Hlasový engine**: výchozí engine Androidu nebo některý z nainstalovaných enginů. V obrazovce titulků tlačítko **Hlas** otevře nastavení, kde lze předčítání zapnout či vypnout a upravit rychlost. Je vyžadován český hlas. Při chybě zvoleného enginu aplikace oznámí přechod na výchozí engine Androidu.
+
+Slider nastavuje základ 0,5–2×. Dohánění násobí tuto rychlost podle věku titulku a odhadu fronty, nejvýše na 3×. Změna se uplatní od dalšího úryvku. Standardní režim může při přetížení vypustit staré čekající titulky; jedinečné Příběhové stránky se tímto způsobem nevypouštějí.
+
+Předčítání je standardně vypnuté. Používá Android TextToSpeech; nepotřebuje klíč k Azure ani OpenAI. Samotný zvolený engine může vyžadovat síťové připojení. Překladač a jeho stávající poskytovatelé se tímto PR nemění.
+
+## Tok textu a ochrana před opakováním
+
+Standardní režim posílá do TTS jen dokončený překlad a celý skutečný anglický vstup překladače, včetně případné připojené předchozí části. Náhledy se nečtou. Příběhový režim předává vybranou stránku s identitou relace, revize a stránky, i když text vykresluje externí přijímač.
+
+Lokální porovnání rozlišuje nový titulek, opravu, zkrácený OCR výsledek a pokračování. Čekající verze se nahrazuje na svém místě; již čtený začátek se při rozpoznaném pokračování odčítá. Kontrola aktivního a nedávno dokončeného obsahu má přednost před frontou a opakuje se před samotným spuštěním hlasu. Záměna samostatného OCR `l`/`I` se toleruje jen v delší anglické větě, nikoli v identifikátorech příběhových stránek.
+
+Jde o heuristiku, nikoli sémantický model. Při nejasném přeformulování prodloužené věty se zachová celý nový překlad, takže může zaznít část začátku znovu. Čtení nelze garantovat pro OCR, které text nezachytí, nebo pro finální překlad zneplatněný dříve, než dorazí do TTS. Skutečnou rychlost a výslovnost ovlivňuje konkrétní engine.
+
+## Diagnostika
+
+**Záznam → Uložit TTS log…** otevře systémový výběr cílového souboru. Log zůstává lokální a obsahuje rozpoznaný text, skutečný vstup překladače, překlad, text předaný hlasu, důvody vynechání/nahrazení, rychlost, počet položek a odhad zpoždění. Finální překlady odmítnuté před předáním do TTS mají záznam `TRANSLATION_REJECTED`.
+
+Log může obsahovat dialogy a text z obrazovky; exportujte a sdílejte jej vědomě. Velikost souboru je omezená rotací. PR neobsahuje uživatelské diagnostické soubory ani přihlašovací údaje.
+
+## Ověření a přejímka
+
+`TtsRevisionPolicyTest` zahrnuje doplňování vět, přeformulování, změněná čísla/zápory, překryv A+B → B+C, oddělení příběhových stránek, dohánění nad ručním základem a přehrání posloupnosti OCR → fronta → dokončení podle nahlášených chyb. Posloupnost se Sarah Connor ověřuje jediné čtení úvodu a zachování nových informací o výstřelech.
+
+Integrovaný kód byl 17. 11. 2026 ověřen na Xiaomi Mi A1 s Androidem 13 a systémovým enginem BookFusion Voice. Prošlo všech 228 JVM testů a sestavení APK s JDK 17 / Gradle 8.7. Testovací APK používá stejný aplikační zdrojový kód; pro aktualizaci uživatelské testovací instalace má pouze jiné instalační označení (`cz.titulky.tv.test`, verze `0.21.23-pr.1-test`, versionCode 47). Tyto obalové změny nejsou součástí veřejné konfigurace projektu.
+
+Na telefonu prošly tři stávající instrumentační testy ovládání a sítě Příběhu a dva doplňkové lokální testy. Ty ověřily skutečné zahájení a dokončení čtení přes BookFusion při 1,4×, potlačení přeformulovaného překladu stejného zdroje, dvě různé Příběhové stránky se stejným textem, ticho pro náhled/vypnutý hlas a přesný export logu do cílového URI. Doplňkové testy dodávají připravené titulky a řídí návrat výběru dokumentu; samotný TTS engine i zápis souboru jsou skutečné.
+
+Následný uživatelský test s živým obrazovým zdrojem zaznamenal 29 zahájených i dokončených čtení (11 Standardní, 18 Příběhový), bez opakování stejného přečteného textu v zachyceném vzorku. Fronta měla nejvýš dvě čekající položky a uživatel potvrdil správné fungování obou režimů. Dva překlady byly zneplatněny před předáním do TTS kvůli novějšímu OCR nebo zmizení titulku; nejde tedy o záruku, že bude přečten každý zachycený dialog.
+
+Android Lint hlásí 1 chybu v nezměněném `LgDevDialog.kt` (`AppCompatCustomView`) a 76 upozornění celkem; přidané TTS řádky mají upozornění na platformní `Switch` a texty mimo překladové zdroje. Výběr jiného enginu, ruční obsluha/zrušení systémového výběru souboru a fyzický externí TV přijímač zůstávají samostatnými přijímacími scénáři. Krátký úspěšný vzorek nepotvrzuje bezchybnost všech OCR a překladových variant.
