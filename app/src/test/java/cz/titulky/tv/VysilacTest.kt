@@ -8,6 +8,10 @@ import java.net.InetAddress
 import java.net.SocketTimeoutException
 
 class VysilacTest {
+    private val puvodniTtsCas = TelefonTitulky.ttsCas
+    @org.junit.Before fun nastavTtsCas() { TelefonTitulky.ttsCas = { System.nanoTime() / 1_000_000 } }
+    @org.junit.After fun obnovTtsCas() { TelefonTitulky.ttsCas = puvodniTtsCas }
+
     @Test fun prvniStoryVymazeStaryStandardAleZachovaVolbyANapovedu() {
         DatagramSocket(Propojeni.PORT_TITULKY, InetAddress.getByName("127.0.0.1")).use { tv ->
             tv.soTimeout = 100

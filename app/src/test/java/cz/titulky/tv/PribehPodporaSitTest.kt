@@ -8,6 +8,10 @@ import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 class PribehPodporaSitTest {
+    private val puvodniTtsCas = TelefonTitulky.ttsCas
+    @org.junit.Before fun nastavTtsCas() { TelefonTitulky.ttsCas = { System.nanoTime() / 1_000_000 } }
+    @org.junit.After fun obnovTtsCas() { TelefonTitulky.ttsCas = puvodniTtsCas }
+
     private val ip = "127.0.0.1"
     private val token = "0123456789abcdef0123456789abcdef.1.0.0"
 

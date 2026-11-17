@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.provider.Settings
 import android.text.InputType
 import android.view.Gravity
@@ -37,6 +38,8 @@ import android.widget.TextView
  */
 class MainActivity : Activity() {
 
+    private data class TtsEngineChoice(val packageName: String, val label: String)
+
     private val nast by lazy { Nastaveni(this) }
     private val udaje by lazy { RemotePlayUdaje(this) }
     private val ui = Handler(Looper.getMainLooper())
@@ -46,6 +49,7 @@ class MainActivity : Activity() {
     private val sirkaObsahu get() = if (telefon) ViewGroup.LayoutParams.MATCH_PARENT else dp(900)
     private val jazyk get() = nast.jazykNeboCs
     private fun t(klic: String) = Texty.t(jazyk, klic)
+    private val ttsPrefs by lazy { getSharedPreferences("gamelingo", MODE_PRIVATE) }
 
     // barvy
     private val CERNA = Color.parseColor("#0B0B0E")
@@ -479,6 +483,19 @@ class MainActivity : Activity() {
             obnovTvKartu()
         }
 
+        if (telefon) {
+            vpravo.addView(sekce("Hlasový engine"))
+            val hlas = karta()
+            hlas.addView(text("Aktuální volba: ${nazevTtsEnginu()}\nTato volba určuje engine pro systémové předčítání.", 16f, TEXT2).apply {
+                setLineSpacing(0f, 1.2f)
+            })
+            hlas.addView(tlacitko("Vybrat hlasový engine  ›", 18f) { vyberTtsEngine() }.apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(18), dp(12), dp(18), dp(12))
+            }, odsazeni(top = 12))
+            vpravo.addView(hlas, odsazeni(bottom = 18))
+        }
+
         // co překládat
         vpravo.addView(sekce(t("coPrekladat")))
         val co = karta()
@@ -555,6 +572,43 @@ class MainActivity : Activity() {
         ui.removeCallbacks(obnova)
         ui.postDelayed(obnova, 1000)
         if (!telefon) (if (jeSlabaTv() || prefsBeta.getString("rezimHry", "tv") == "tel") dlazdiceTel else dlazdiceTv)?.requestFocus()
+    }
+
+    private fun nazevTtsEnginu(): String {
+        val packageName = ttsPrefs.getString("ttsEnginePackage", "").orEmpty()
+        if (packageName.isBlank()) return "Výchozí engine Androidu"
+        return runCatching {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
+        }.getOrDefault(packageName)
+    }
+
+    private fun vyberTtsEngine() {
+        val intent = Intent(TextToSpeech.Engine.INTENT_ACTION_TTS_SERVICE)
+        val installed = runCatching {
+            packageManager.queryIntentServices(intent, 0)
+                .mapNotNull { info ->
+                    val service = info.serviceInfo ?: return@mapNotNull null
+                    val name = runCatching { info.loadLabel(packageManager).toString().trim() }
+                        .getOrDefault("").ifBlank { service.packageName }
+                    TtsEngineChoice(service.packageName, name)
+                }
+                .distinctBy { it.packageName }
+                .sortedBy { it.label.lowercase(java.util.Locale.getDefault()) }
+        }.getOrDefault(emptyList())
+        val choices = listOf(TtsEngineChoice("", "Výchozí engine Androidu")) + installed
+        val stored = ttsPrefs.getString("ttsEnginePackage", "").orEmpty()
+        val selected = choices.indexOfFirst { it.packageName == stored }.coerceAtLeast(0)
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Vyber hlasový engine")
+            .setSingleChoiceItems(choices.map { it.label }.toTypedArray(), selected) { dialog, which ->
+                val choice = choices[which]
+                ttsPrefs.edit().putString("ttsEnginePackage", choice.packageName).apply()
+                dialog.dismiss()
+                ukazHlavni()
+                android.widget.Toast.makeText(this, "Předčítání použije: ${choice.label}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(t("zpet"), null)
+            .show()
     }
 
     // ------------------------------------------------------------------ titulky z telefonu (televize)
