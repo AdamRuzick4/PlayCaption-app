@@ -29,7 +29,23 @@ internal class LgDevUloziste(context: Context) {
         if (runCatching { token(id) }.getOrNull() == token) return@synchronized
         require(token.matches(Regex("[A-Za-z0-9]{8,256}")))
         val data = zabal(klic(), id, token)
-        prefs.edit().putString(k(id) + ".token", data).remove(k(id) + ".sekundy").remove(k(id) + ".overeno").apply()
+        prefs.edit().putString(k(id) + ".token", data).remove(k(id) + ".sekundy").remove(k(id) + ".overeno")
+            .remove(k(id) + ".auto").remove(k(id) + ".pokusObnovy").remove(k(id) + ".chybaObnovy").apply()
+    }
+    fun automaticky(id: String) = prefs.getBoolean(k(id) + ".auto", false)
+    fun nastavAutomaticky(id: String, zapnuto: Boolean) = synchronized(ZAMEK) {
+        prefs.edit().putBoolean(k(id) + ".auto", zapnuto).apply()
+    }
+    fun chybaProdlouzeni(id: String) = automaticky(id) && prefs.getBoolean(k(id) + ".chybaObnovy", false)
+    fun zahajProdlouzeni(id: String, verze: String, ted: Long): Boolean = synchronized(ZAMEK) {
+        if (!automaticky(id) || verze(id) != verze) return@synchronized false
+        val key = k(id) + ".pokusObnovy"
+        val posledni = prefs.getLong(key, 0)
+        if (!LgDevMode.povolenPokus(posledni, ted)) return@synchronized false
+        prefs.edit().putLong(key, ted).commit()
+    }
+    fun vysledekProdlouzeni(id: String, verze: String, uspel: Boolean) = synchronized(ZAMEK) {
+        if (verze(id) == verze) prefs.edit().putBoolean(k(id) + ".chybaObnovy", !uspel).apply()
     }
     fun parovaniId(ip: String): String? = prefs.getString("ip." + k(ip), null)
     fun maParovani(ip: String) = parovaniId(ip)?.let { prefs.contains(k(it) + ".ssh") } == true
@@ -47,7 +63,8 @@ internal class LgDevUloziste(context: Context) {
     fun verzePrijimace(id: String) = prefs.getString(k(id) + ".receiver", null)
     fun zapomenParovani(ip: String, profilId: String? = null) {
         val id = profilId ?: parovaniId(ip) ?: return
-        prefs.edit().remove(k(id) + ".ssh").remove(k(id) + ".host").remove("ip." + k(ip)).apply()
+        prefs.edit().remove(k(id) + ".ssh").remove(k(id) + ".host").remove("ip." + k(ip))
+            .remove(k(id) + ".auto").remove(k(id) + ".chybaObnovy").apply()
     }
     private fun klic(): SecretKey = synchronized(ZAMEK) {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

@@ -5,7 +5,7 @@ import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.HttpsURLConnection
 
-/** Kontrola relace u LG. Žádná operace zde Developer Mode neprodlužuje. */
+/** Čas i volitelné prodloužení ověřujeme přímo u LG. */
 internal object LgDevMode {
     private val pokusy = ConcurrentHashMap<String, Pair<String, Long>>()
     private val bezi = ConcurrentHashMap.newKeySet<String>()
@@ -24,16 +24,38 @@ internal object LgDevMode {
         pokusy[id] = verze to now
         Thread {
             try {
-                val cas = nacti(store.token(id))
-                if (store.cas(id, verze, cas)) chyby.remove(id)
+                val token = store.token(id)
+                fun zkontroluj() = LgDevCas.zOdpovedi(dotaz(token, false), System.currentTimeMillis())
+                val cas = zkontroluj()
+                if (store.cas(id, verze, cas)) {
+                    chyby.remove(id)
+                    if (cas.sekundy > TYDEN && store.chybaProdlouzeni(id)) store.vysledekProdlouzeni(id, verze, true)
+                    if (maSeProdlouzit(cas) && store.zahajProdlouzeni(id, verze, now)) {
+                        val novy = runCatching { prodluz(cas, { dotaz(token, true) }, ::zkontroluj) }.getOrNull()
+                        if (novy != null) store.cas(id, verze, novy)
+                        store.vysledekProdlouzeni(id, verze, novy != null)
+                    }
+                }
             } catch (_: Exception) { if (store.verze(id) == verze) chyby.add(id) }
             finally { bezi.remove(id) }
         }.apply { isDaemon = true }.start()
     }
 
-    private fun nacti(token: String): LgDevCas {
+    const val TYDEN = 7 * 24 * 3600L
+    internal fun maSeProdlouzit(cas: LgDevCas) = cas.sekundy in 1..TYDEN
+    internal fun povolenPokus(posledni: Long, ted: Long) = posledni <= 0 || ted < posledni || ted - posledni >= 24 * 3600_000L
+
+    internal fun prodluz(stary: LgDevCas, pozadavek: () -> String, kontrola: () -> LgDevCas): LgDevCas {
+        val odpoved = org.json.JSONObject(pozadavek())
+        val vysledek = odpoved.optString("result")
+        require(vysledek == "success" || (vysledek.isEmpty() && odpoved.optString("errorCode") == "200"))
+        return kontrola().also { require(it.sekundy > stary.sekundy) }
+    }
+
+    private fun dotaz(token: String, prodlouzit: Boolean): String {
         require(token.matches(Regex("[A-Za-z0-9]{8,256}")))
-        val conn = URL("https://developer.lge.com/secure/CheckDevModeSession.dev?sessionToken=$token")
+        val akce = if (prodlouzit) "ResetDevModeSession" else "CheckDevModeSession"
+        val conn = URL("https://developer.lge.com/secure/${akce}.dev?sessionToken=$token")
             .openConnection() as HttpsURLConnection
         try {
             conn.instanceFollowRedirects = false
@@ -54,7 +76,7 @@ internal object LgDevMode {
                 }
                 out.toByteArray()
             }
-            return LgDevCas.zOdpovedi(bytes.toString(Charsets.UTF_8), System.currentTimeMillis())
+            return bytes.toString(Charsets.UTF_8)
         } finally { conn.disconnect() }
     }
 }

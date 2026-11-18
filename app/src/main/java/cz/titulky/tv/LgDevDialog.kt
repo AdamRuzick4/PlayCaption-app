@@ -33,8 +33,19 @@ internal class LgDevDialog(private val activity: Activity, private val profil: T
     private fun t(key: String) = Texty.t(activity, key)
     fun ukaz() {
         val text = TextView(activity).apply { textSize = 18f; setPadding(30, 20, 30, 20) }
+        val store = LgDevUloziste(activity)
+        val auto = android.widget.CheckBox(activity).apply {
+            this.text = t("lgCasAutoObnova")
+            isChecked = store.automaticky(profil.id)
+            setOnCheckedChangeListener { _, zapnuto ->
+                if (store.automaticky(profil.id) == zapnuto) return@setOnCheckedChangeListener
+                store.nastavAutomaticky(profil.id, zapnuto)
+                if (zapnuto) LgDevMode.obnov(activity, profil.id, true)
+            }
+        }
+        val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; addView(text); addView(auto) }
         val dialog = AlertDialog.Builder(activity).setTitle(profil.jmeno + " · Developer Mode")
-            .setView(text).setPositiveButton(t("lgCasZkontrolovat"), null)
+            .setView(box).setPositiveButton(t("lgCasZkontrolovat"), null)
             .setNeutralButton(t("lgCasNacistTv"), null).setNegativeButton(t("lgZavrit"), null).create()
         val refresh = object : Runnable {
             override fun run() {
@@ -42,7 +53,9 @@ internal class LgDevDialog(private val activity: Activity, private val profil: T
                 if (dialog.window?.decorView?.hasWindowFocus() == true) LgDevMode.obnov(activity, profil.id)
                 val prijimac = LgDevUloziste(activity).verzePrijimace(profil.id)
                 text.text = lgDevPopis(activity, profil.id) + (if (prijimac != null) "\n" + t("lgVerzePosledni").replace("{verze}", prijimac.ifEmpty { t("lgChybiPrijimac") }) else "") + "\n\n" + t("lgCasRucniObnova")
-                val store = LgDevUloziste(activity)
+                auto.isEnabled = store.maRelaci(profil.id) && !LgDevMode.bezi(profil.id)
+                auto.isChecked = store.automaticky(profil.id)
+                if (store.chybaProdlouzeni(profil.id)) text.append("\n" + t("lgCasObnovaChyba"))
                 dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = store.maRelaci(profil.id) && !LgDevMode.bezi(profil.id)
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).isEnabled = !LgDevMode.bezi(profil.id)
                 ui.postDelayed(this, 1000)

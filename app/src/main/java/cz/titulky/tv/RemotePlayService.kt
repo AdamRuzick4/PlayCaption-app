@@ -1125,6 +1125,11 @@ class RemotePlayService : Service() {
         override fun run() {
             if (!pripojeno()) return
             prekladac.udrzujSpojeni()
+            if (telefon && Propojeni.Vysilac.cilIp != null && platformaCile() == TvPlatforma.WEBOS) {
+                TvProfily.aktivniId?.takeIf { LgDevUloziste(this@RemotePlayService).automaticky(it) }?.let {
+                    LgDevMode.obnov(this@RemotePlayService, it)
+                }
+            }
             ui.postDelayed(this, 60_000)
         }
     }

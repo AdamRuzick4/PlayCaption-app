@@ -89,7 +89,7 @@ Android zálohování je vypnuté. Token, URL s tokenem, Passphrase ani soukrom�
 se nelogují. Passphrase zůstává pouze v paměti operace. SSH klíč pro další spojení je uložený
 odděleně, šifrovaně a s jiným AAD než session token.
 
-`LgDevMode` používá pouze HTTPS GET na pevnou službu LG
+`LgDevMode` ověřuje zbývající čas přes HTTPS GET na pevné službě LG
 `developer.lge.com/secure/CheckDevModeSession.dev`, bez přesměrování a cache HTTP.
 Odpověď musí mít úspěšný výsledek a rozpoznaný čas; neznámý formát není nula.
 Cache uchovává počet sekund a čas ověření pro každou TV zvlášť. Starší odpověď
@@ -97,4 +97,4 @@ z předchozího propojení nesmí přepsat novou relaci. Ruční kontrola je dos
 v detailu TV, automatická nejvýše hodinově při viditelné kartě.
 Žádná nová služba na pozadí, plánovač, vlastní backend ani změna LG přijímače.
 Čerstvost má limit 24 hodin; při chybě se ponechá označený poslední údaj.
-Pod tři dny se zobrazí připomínka ručního prodloužení. Běžící titulky neobnovují relaci.
+Pod tři dny se zobrazí připomínka ručního prodloužení. Po výslovném zapnutí u konkrétní TV kontroluje čas také aktivní přehrávání. Při 1 s až 7 dnech zbývajícího času zkusí nejvýše jednou denně ResetDevModeSession.dev na stejném hostiteli. Úspěch vyžaduje nové načtení delšího času.

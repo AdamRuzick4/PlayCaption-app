@@ -187,7 +187,11 @@ posledního ověření; z něj se dopočítává přibližný zbytek. Údaj star
 chyba kontroly či změna hodin telefonu jsou označené jako starší stav.
 Při méně než třech dnech se čerstvý údaj zvýrazní a připomene ruční EXTEND.
 Po novém přihlášení do Developer Mode může být potřeba **Načíst údaj z TV** znovu.
-PlayCaption Developer Mode neprodlužuje ani neposílá upozornění na pozadí.
+V detailu Developer Mode lze pro tuto TV zapnout automatické prodloužení. Když
+Android při kontrole zjistí, že zbývá nejvýše sedm dní a relace dosud platí,
+požádá přímo LG o prodloužení a znovu ověří zbývající čas. Pokus opakuje nejvýše
+jednou za 24 hodin. Funguje při otevřené kartě TV nebo během připojeného hraní
+s výstupem na tuto LG. Při delší pauze před vypršením použij na TV EXTEND.
 Pravidla a odstranění aplikací při deaktivaci popisuje [oficiální LG návod](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app).
 
 Běžné aktualizace PlayCaption

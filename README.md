@@ -95,7 +95,7 @@ verze, aktualizaci i zobrazení platnosti Developer Mode. Přibalený přijíma�
 instaluje pouze tehdy, když v TV chybí nebo je starší. Novější se nepřepisuje.
 Párovací klíč a údaj relace jsou uložené šifrovaně v Android zařízení; heslo LG ani
 Passphrase se neukládají. Samotná instalace běží v místní síti, kontrola času
-potřebuje spojení přímo se službou LG. PlayCaption Developer Mode neprodlužuje.
+potřebuje spojení přímo se službou LG. V detailu TV lze zapnout prodloužení při používání, pokud zbývá nejvýše týden.
 Externí Android správce a počítačový postup zůstávají záložními možnostmi.
 
 Po kontrole verze lze v LG průvodci samostatně ověřit běžící přijímač na konkrétní

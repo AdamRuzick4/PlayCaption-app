@@ -6,7 +6,7 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- LG: volitelné prodloužení Developer Mode přímo u LG, když při používání zbývá nejvýše týden.
 
 ## 0.22 (versionCode 35)
 

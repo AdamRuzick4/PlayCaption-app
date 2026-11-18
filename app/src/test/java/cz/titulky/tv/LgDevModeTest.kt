@@ -6,6 +6,27 @@ import javax.crypto.spec.SecretKeySpec
 
 class LgDevModeTest {
     private val ted = 1_800_000_000_000L
+    @Test fun obnovujeJenPlatnouRelaciVPoslednimTydnu() {
+        val week = 604800L
+        for (v in listOf(0L, -1L, week + 1)) assertFalse(LgDevMode.maSeProdlouzit(LgDevCas(v, ted)))
+        for (v in listOf(1L, week)) assertTrue(LgDevMode.maSeProdlouzit(LgDevCas(v, ted)))
+        assertTrue(LgDevMode.povolenPokus(0, ted))
+        assertFalse(LgDevMode.povolenPokus(ted, ted + 86400000 - 1))
+        assertTrue(LgDevMode.povolenPokus(ted, ted + 86400000))
+    }
+    @Test fun prodlouzeniVyžadujeSouhlasLgADelsiCas() {
+        val stary = LgDevCas(3600, ted)
+        val novy = LgDevCas(360000, ted + 1000)
+        val souhlas = """{"result":"success"}"""
+        assertEquals(novy, LgDevMode.prodluz(stary, { souhlas }, { novy }))
+        assertEquals(novy, LgDevMode.prodluz(stary, { """{"errorCode":200}""" }, { novy }))
+        assertTrue(runCatching { LgDevMode.prodluz(stary, { souhlas }, { stary }) }.isFailure)
+        for (odpoved in listOf("{}", """{"result":"error"}""", "<html>")) {
+            var overeno = false
+            assertTrue(runCatching { LgDevMode.prodluz(stary, { odpoved }, { overeno = true; novy }) }.isFailure)
+            assertFalse(overeno)
+        }
+    }
     @Test fun lgHoursMayExceedTwentyFourAndCountDownFromVerification() {
         val cas = LgDevCas.zOdpovedi("""{"result":"success","errorMsg":"999:32:04"}""", ted)
         assertEquals(999 * 3600L + 32 * 60 + 4, cas.sekundy)
