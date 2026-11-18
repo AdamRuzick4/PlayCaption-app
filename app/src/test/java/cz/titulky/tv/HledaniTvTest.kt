@@ -30,6 +30,37 @@ class HledaniTvTest {
         }
     }
 
+    @Test fun firstSearchFindsLgThatOnlyRepliesToNetworkQuery() {
+        odpovidac({ "PLAYCAPTION_TV\t${lg.id}\tLG\t0\t$it" }) {
+            assertEquals(listOf(lg), Propojeni.hledejVSiti(500, emptyList(), lg.ip).filter { it.ip == lg.ip })
+        }
+    }
+
+    @Test fun manualAddressCanVerifyNewLgWithoutAnnouncements() {
+        odpovidac({ "PLAYCAPTION_TV\t${lg.id}\tLG\t0\t$it" }) {
+            assertEquals(lg, Propojeni.overLgNaAdrese(InetAddress.getByName(lg.ip), null))
+        }
+    }
+
+    @Test fun manualAddressOfAnotherLgCannotReplaceSelectedLg() {
+        odpovidac({ "PLAYCAPTION_TV\tlg-ffeeddccbbaa\tLG\t0\t$it" }) {
+            try {
+                Propojeni.overLgNaAdrese(InetAddress.getByName(lg.ip), lg.id)
+                fail("Odpověděla jiná LG")
+            } catch (e: LgInstalacniChyba) {
+                assertEquals(LgChyba.IDENTITA, e.kod)
+            }
+        }
+    }
+
+    @Test fun manualAddressRequiresLiveLgReplyToCurrentQuery() {
+        for (reply in listOf(null, "PLAYCAPTION_TV\t${lg.id}\tLG\t0\told", "PLAYCAPTION_TV\tandroid-tv\tTV\t1")) {
+            odpovidac({ reply }) {
+                assertNull(Propojeni.overLgNaAdrese(InetAddress.getByName(lg.ip), null, 100))
+            }
+        }
+    }
+
     @Test fun storedLgCanBeFoundWithoutBroadcast() {
         odpovidac({ "PLAYCAPTION_TV\t${lg.id}\tLG test\t0\t$it" }) {
             val found = Propojeni.hledejVSiti(300, listOf(lg))

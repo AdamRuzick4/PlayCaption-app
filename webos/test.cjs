@@ -133,7 +133,9 @@ vm.runInNewContext(fs.readFileSync(__dirname + '/service/service.js', 'utf8'), {
         if (name === 'os') return { hostname: () => 'LG', networkInterfaces: () => network };
         return require(name.startsWith('./') ? './service/' + name.slice(2) : name);
     }, Buffer, console, Date: { now: () => now },
-    setInterval: fn => { serviceTimers.set(++nextId, fn); return nextId; }, clearInterval: id => serviceTimers.delete(id)
+    setInterval: fn => { serviceTimers.set(++nextId, fn); return nextId; }, clearInterval: id => serviceTimers.delete(id),
+    setTimeout: fn => { const id = ++nextId; serviceTimers.set(id, () => { serviceTimers.delete(id); fn(); }); return id; },
+    clearTimeout: id => serviceTimers.delete(id)
 });
 const request = { isSubscription: true, uniqueToken: 'a', respond: p => replies.push(p) };
 handlers.listen.request(request);
@@ -206,6 +208,7 @@ network = {
     ipv6: [{ internal: false, family: 'IPv6', address: '::1' }]
 };
 const before = sent.length;
+[...serviceTimers.values()].forEach(fn => fn());
 handlers.listen.request(request); sockets[2].bound();
 assert.deepEqual(sent.slice(before).map(p => p.address).sort(), ['10.42.7.255', '172.20.31.255']);
 assert.notEqual(sent[before].data.split('\t')[1], sent[0].data.split('\t')[1], 'Jiná TV musí mít vlastní discovery ID.');

@@ -344,11 +344,7 @@ class LgPruvodce(private val activity: Activity, private val vyhledej: () -> Uni
         Propojeni.hledej(activity) { nalezene -> ui.post {
             if (dialog.isShowing && !activity.isDestroyed && overeniPrijmu.dokonci(pokus, nalezene, System.currentTimeMillis())) {
                 obnovPrijem()
-                runCatching {
-                    val cas = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())
-                    java.io.File(activity.filesDir, "titulky.log").appendText(
-                        "$cas [LG příjem] kontrola TV ${cil.ip}: ${if (overeniPrijmu.vysledek?.nalezen == true) "přijímač se ozval" else "bez odpovědi"}\n")
-                }
+                Zaznam.lgPrijem(activity, "kontrola TV ${cil.ip}: ${if (overeniPrijmu.vysledek?.nalezen == true) "přijímač se ozval" else "bez odpovědi"}")
             }
         } }
     }

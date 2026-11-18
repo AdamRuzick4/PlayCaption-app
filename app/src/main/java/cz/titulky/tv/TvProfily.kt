@@ -45,7 +45,7 @@ class TvProfily internal constructor(
     }
 
     fun platformaPrijimace(id: String): TvPlatforma = when {
-        id.matches(Regex("lg-[a-f0-9]{12}")) -> TvPlatforma.WEBOS
+        maIdLg(id) -> TvPlatforma.WEBOS
         SamsungPrijimac.jeSamsung(id) -> TvPlatforma.SAMSUNG
         else -> najdi(id)?.platforma ?: TvPlatforma.NEZNAMA
     }
@@ -87,6 +87,19 @@ class TvProfily internal constructor(
         prefs.edit().putString("posledni", id).putBoolean("pouzeTelefon", false).apply()
     }
 
+    /** Výsledek hledání patří cíli vybranému na začátku. Cizí TV může po DHCP mít jeho původní IP. */
+    internal fun obnovAdresuLg(id: String, puvodniIp: String?, nalezene: List<Propojeni.Televize>): Boolean {
+        if (aktivniId != id || pouzeTelefon || !maIdLg(id) ||
+            Propojeni.Vysilac.cilIp != puvodniIp) return false
+        val stejna = nalezene.singleOrNull { it.id == id }
+        val novaIp = stejna?.ip?.takeUnless { ip -> nalezene.any { it.ip == ip && it.id != id } }
+        if (novaIp == puvodniIp) return false
+        if (novaIp == null && nalezene.none { it.ip == puvodniIp && it.id != id }) return false
+        if (novaIp != null) zapamatuj(id, stejna.jmeno, novaIp)
+        Propojeni.Vysilac.presmerujStejnouTv(novaIp)
+        return true
+    }
+
     fun automaticky(nalezene: List<Propojeni.Televize>): Propojeni.Televize? {
         if (pouzeTelefon) return null
         val vhodne = nalezene.filter { platforma == TvPlatforma.NEZNAMA || platformaPrijimace(it.id) == platforma }
@@ -97,6 +110,8 @@ class TvProfily internal constructor(
     internal fun nastaveni(id: String) = soubor("tv_nastaveni_" + klic(id))
 
     companion object {
+        private val ID_LG = Regex("lg-[a-f0-9]{12}")
+        internal fun maIdLg(id: String) = ID_LG.matches(id)
         @Volatile var aktivniId: String? = null
             private set
         fun lokalne() { aktivniId = null }

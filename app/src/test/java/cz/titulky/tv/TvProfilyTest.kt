@@ -4,6 +4,10 @@ import android.content.SharedPreferences
 import org.junit.Assert.*
 import org.junit.Test
 import java.lang.reflect.Proxy
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.SocketTimeoutException
 
 class TvProfilyTest {
     @Test fun lgCannotEnterAndroidCredentialHandoffEvenWithUnknownPlatform() {
@@ -69,6 +73,75 @@ class TvProfilyTest {
         assertEquals(.7f, p.nastaveni("A").getFloat("tvX", 0f))
         assertEquals("cs", legacy.getString("jazyk", null))
         assertEquals(.4f, legacy.getFloat("tvX", 0f))
+    }
+
+    @Test fun dhcpMovesSubtitlesOnlyToTheSelectedLgEvenWhenAnotherLgTakesItsAddress() {
+        val profily = store()
+        val vysilac = Propojeni.Vysilac
+        val drive = tv("lg-001122334455", "127.0.0.2").copy(jmeno = "Obývák")
+        val jina = drive.copy(id = "lg-ffeeddccbbaa")
+        val stejna = drive.copy(ip = "127.0.0.1")
+        val jinyCil = jina.copy(ip = "127.0.0.3")
+        for (obrazovka in listOf(drive, jinyCil)) profily.zapamatuj(obrazovka.id, obrazovka.jmeno, obrazovka.ip)
+        profily.vyber(drive.id)
+        try {
+            vysilac.nastavCil(drive.ip, drive.jmeno)
+            assertFalse(profily.obnovAdresuLg(drive.id, drive.ip, listOf(jinyCil)))
+            assertEquals(drive.ip, vysilac.cilIp)
+            assertTrue(profily.obnovAdresuLg(drive.id, drive.ip, listOf(jina)))
+            assertNull(vysilac.cilIp)
+            vysilac.zmena("Titulek pro původní LG", 6000, "")
+            assertFalse(profily.obnovAdresuLg(drive.id, null, listOf(jina)))
+            assertFalse(profily.obnovAdresuLg(drive.id, null, listOf(jina, stejna.copy(ip = jina.ip))))
+            DatagramSocket(Propojeni.PORT_TITULKY, InetAddress.getByName(stejna.ip)).use { tv ->
+                tv.soTimeout = 2000
+                assertTrue(profily.obnovAdresuLg(drive.id, null, listOf(jina, stejna)))
+                val packet = DatagramPacket(ByteArray(8192), 8192)
+                tv.receive(packet)
+                assertEquals("Titulek pro původní LG", String(packet.data, 0, packet.length, Charsets.UTF_8).split('\t')[3])
+            }
+            assertEquals(stejna.ip, vysilac.cilIp)
+            assertEquals(stejna.ip, profily.najdi(drive.id)?.ip)
+            assertEquals(drive.id, profily.posledniId)
+            assertEquals(jinyCil.ip, profily.najdi(jina.id)?.ip)
+            assertFalse(profily.obnovAdresuLg(drive.id, drive.ip, listOf(drive))) // opožděný výsledek
+            profily.vyber(jina.id)
+            assertFalse(profily.obnovAdresuLg(drive.id, stejna.ip, listOf(drive)))
+        } finally {
+            vysilac.nastavCil(null, "")
+            TvProfily.lokalne()
+        }
+    }
+
+    @Test fun newAddressOfSelectedLgWinsOverFirstDiscoveryResultWithoutDisconnecting() {
+        val p = store()
+        val puvodni = tv("lg-aabbccddeeff", "127.0.0.1")
+        val presunuta = puvodni.copy(ip = "127.0.0.2")
+        val jina = puvodni.copy(id = "lg-001122334455")
+        p.zapamatuj(puvodni.id, puvodni.jmeno, puvodni.ip)
+        p.vyber(puvodni.id)
+        try {
+            Propojeni.Vysilac.nastavCil(puvodni.ip, puvodni.jmeno)
+            assertTrue(p.obnovAdresuLg(puvodni.id, puvodni.ip, listOf(jina, presunuta)))
+            assertEquals(presunuta.ip, Propojeni.Vysilac.cilIp)
+            // Na původní adrese nyní naslouchá druhá LG. Nesmí dostat ani opakovaný titulek.
+            DatagramSocket(Propojeni.PORT_TITULKY, InetAddress.getByName(jina.ip)).use { druhaTv ->
+                druhaTv.soTimeout = 1200
+                Propojeni.Vysilac.zmena("Jen na přesunutou LG", 6000, "")
+                try {
+                    druhaTv.receive(DatagramPacket(ByteArray(8192), 8192))
+                    fail("Telefon po přesměrování stále posílá na původní adresu.")
+                } catch (_: SocketTimeoutException) { /* očekávané ticho */ }
+            }
+            assertFalse(p.obnovAdresuLg(puvodni.id, presunuta.ip, listOf(jina, presunuta)))
+            TvProfily.lokalne()
+            Propojeni.Vysilac.nastavCil(null, "")
+            assertFalse(p.obnovAdresuLg(puvodni.id, presunuta.ip, listOf(puvodni)))
+            assertNull(Propojeni.Vysilac.cilIp)
+        } finally {
+            Propojeni.Vysilac.nastavCil(null, "")
+            TvProfily.lokalne()
+        }
     }
 
     @Test fun changedAddressKeepsIdPlatformAndSettings() {

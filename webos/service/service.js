@@ -10,6 +10,8 @@ require("./switch-input").register(service);
 var subscriptions = {};
 var socket = null;
 var announceTimer = null;
+var retryTimer = null;
+var retryDelay = 1000;
 var ready = false;
 var storyPeer = null;
 var receiverName = "LG PlayCaption";
@@ -24,6 +26,8 @@ function notify(payload) {
 }
 
 function stop() {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = null;
     clearInterval(announceTimer);
     announceTimer = null;
     ready = false;
@@ -33,13 +37,24 @@ function stop() {
     sender = null;
     senderSeen = 0;
     rejectedAt = 0;
-    if (socket) { try { socket.close(); } catch (error) {} }
+    var previous = socket;
     socket = null;
+    if (previous) { try { previous.close(); } catch (error) {} }
+}
+
+function retry(error) {
+    stop();
+    notify({ returnValue: false, errorText: "Příjem UDP selhal: " + (error.code || "UNKNOWN") });
+    if (Object.keys(subscriptions).length === 0) return;
+    retryTimer = setTimeout(function () { retryTimer = null; start(); }, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 15000);
 }
 
 function start() {
-    if (socket) return;
-    var receiver = dgram.createSocket("udp4");
+    if (socket || retryTimer !== null || Object.keys(subscriptions).length === 0) return;
+    var receiver;
+    try { receiver = dgram.createSocket("udp4"); }
+    catch (error) { retry(error); return; }
     socket = receiver;
     function announce() {
         if (socket !== receiver) return;
@@ -58,11 +73,12 @@ function start() {
         });
         var id = crypto.createHash("sha256").update(identity).digest("hex").slice(0, 12);
         var name = "LG PlayCaption · " + id.toUpperCase();
-        var changed = receiverName !== name || networkReady !== (addresses.length > 0);
         receiverName = name;
         networkReady = addresses.length > 0;
         announcement = Buffer.from("PLAYCAPTION_TV\tlg-" + id + "\t" + receiverName + "\t0", "utf8");
-        if (changed) notify({ returnValue:true, ready:ready, networkReady:networkReady, name:receiverName });
+        // Stav je i heartbeat odběru Luna; ticho ve hře není výpadek služby.
+        notify({ returnValue:true, ready:ready, networkReady:networkReady, name:receiverName });
+        if (socket !== receiver) return;
         addresses.forEach(function (address) {
             receiver.send(announcement, 41988, address, function (error) {
                 if (error) console.error("PlayCaption discovery:", error.code);
@@ -71,9 +87,9 @@ function start() {
     }
     receiver.on("error", function (error) {
         if (socket !== receiver) return;
-        notify({ returnValue: false, errorText: "Příjem UDP selhal: " + error.code });
-        stop();
+        retry(error);
     });
+    receiver.on("close", function () { if (socket === receiver) retry({ code: "CLOSED" }); });
     receiver.on("message", function (buffer, remote) {
         if (socket !== receiver) return;
         var query = buffer.length === 49 && /^PLAYCAPTION_FIND\t([a-f0-9]{32})$/.exec(buffer.toString("utf8"));
@@ -102,14 +118,16 @@ function start() {
         if (packet.kind === "story") storyPeer = {id:packet.id,address:remote.address,port:remote.port};
         notify({ returnValue: true, packet: packet, source: remote.address });
     });
-    receiver.bind(41989, "0.0.0.0", function () {
+    try { receiver.bind(41989, "0.0.0.0", function () {
         if (socket !== receiver) return;
-        receiver.setBroadcast(true);
-        ready = true;
-        announce();
-        notify({ returnValue: true, ready: true, networkReady: networkReady, name: receiverName });
-        announceTimer = setInterval(announce, 2000);
-    });
+        try {
+            receiver.setBroadcast(true);
+            ready = true;
+            retryDelay = 1000;
+            announce();
+            if (socket === receiver) announceTimer = setInterval(announce, 2000);
+        } catch (error) { if (socket === receiver) retry(error); }
+    }); } catch (error) { if (socket === receiver) retry(error); }
 }
 
 service.register("listen", function (message) {
@@ -122,7 +140,7 @@ service.register("listen", function (message) {
     start();
 }, function (message) {
     delete subscriptions[message.uniqueToken];
-    if (Object.keys(subscriptions).length === 0) stop();
+    if (Object.keys(subscriptions).length === 0) { stop(); retryDelay = 1000; }
 });
 
 service.register("storyAck", function (message) {

@@ -110,18 +110,26 @@ class TelefonActivity : Activity() {
     /**
      * Dokud se titulky neposílají do televize, každých 8 s se podívat, jestli v síti nečeká
      * televize v režimu "Titulky čte telefon". Jedna → připojit sama. Víc → nabídnout výběr
-     * (jednou). Poslední vybraná televize má přednost.
+     * (jednou). U vybrané LG dál sleduj její ID pro případ změny adresy.
      */
     private var nabidnutVyber = true
     private val hledaniTv: Runnable = object : Runnable {
         override fun run() {
-            if (isFinishing) return
-            if (!rucneJenTelefon && Propojeni.Vysilac.cilIp == null && !hledam) {
+            if (isFinishing || isDestroyed) return
+            val ip = Propojeni.Vysilac.cilIp
+            val lg = TvProfily.aktivniId?.takeIf { TvProfily.maIdLg(it) }
+            if (!hledam && (lg != null || (!rucneJenTelefon && ip == null))) {
                 hledam = true
+                val generace = Propojeni.Vysilac.generace
                 Propojeni.hledej(this@TelefonActivity, 2500) { seznam ->
                     ui.post {
                         hledam = false
-                        if (isFinishing || rucneJenTelefon || Propojeni.Vysilac.cilIp != null) return@post
+                        if (isFinishing || isDestroyed || generace != Propojeni.Vysilac.generace) return@post
+                        if (lg != null) {
+                            if (televize.obnovAdresuLg(lg, ip, seznam)) obnovTvTlacitko()
+                            return@post
+                        }
+                        if (rucneJenTelefon || Propojeni.Vysilac.cilIp != null) return@post
                         val tv = televize.automaticky(seznam)
                         when {
                             tv != null -> pripojTv(tv)
@@ -153,7 +161,7 @@ class TelefonActivity : Activity() {
 
     /** Původní předávání Android TV ponechává minutový limit; LG potřebuje telefon dál. */
     private fun pokracovatNaLg() = TelefonPozadi.pokracovatNaLg(RemotePlayService.aktivni,
-        Propojeni.Vysilac.cilIp, TvProfily.aktivniId?.let { televize.najdi(it)?.platforma })
+        TvProfily.aktivniId, TvProfily.aktivniId?.let { televize.najdi(it)?.platforma })
 
     private val odlozeno = Runnable {
         // Cíl se mohl změnit i po naplánování tohoto callbacku.
@@ -210,6 +218,7 @@ class TelefonActivity : Activity() {
     }
 
     override fun onDestroy() {
+        ui.removeCallbacks(hledaniTv)
         if (displejHlidam) { runCatching { unregisterReceiver(displej) }; displejHlidam = false }
         if (isFinishing) zastav()
         super.onDestroy()

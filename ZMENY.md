@@ -6,7 +6,13 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- LG: po výpadku UDP nebo spojení aplikace se službou se příjem automaticky obnoví.
+  Opakování mají rostoucí prodlevu a skončí při zavření přijímače.
+  Při prvním hledání telefon aktivně osloví LG. Pokud ji síť neohlásí, lze běžící
+  přijímač ověřit přímo podle IP a vybrat jej jako výstup titulků.
+  Telefon po změně IP znovu najde vybranou LG podle jejího ID.
+  Stav služby se pravidelně kontroluje i během ticha ve hře; po návratu zůstane Story na stejné
+  stránce se zbývajícím časem. Formát UDP zpráv ani výstup do ostatních TV se nemění.
 
 ## 0.22 (versionCode 35)
 

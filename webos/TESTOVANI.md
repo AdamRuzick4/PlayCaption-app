@@ -1,5 +1,31 @@
 # Kontrola LG přijímače před předáním
 
+## Obnova LG příjmu – 18. 11. 2026 (nevydáno)
+
+- `node webos/test-recovery.cjs` používá simulovaný čas: chyby create/bind/error/close,
+  prodlevy 1–15 s, zánik odběru Luna bez callbacku, pozdní callbacky, výpadek sítě
+  a změnu IP, zrušení všech opakování po zavření aplikace. Pro Story ověřuje stejnou
+  stránku a zbývající čas, opakování done bez zobrazení a obnovení voleb se stejným ID.
+- `node webos/test-udp.cjs` navíc skutečně obnoví socket po vložené chybě ENETDOWN
+  a přes nový UDP socket přijme český titulek a potvrdí dotaz Story. Síť TV nesimuluje.
+- Služba má samostatné opakování po 1/2/4/8/15 s, UI obnovuje odběr po 2/4/8/15 s.
+  Pravidelná odpověď služby každé 2 s odlišuje živý odběr od ticha ve hře. Stávající
+  desetisekundový limit nyní odhalí i pozdější zánik odběru; pětisekundový limit
+  příchozích titulků zůstává. Jde o výchozí parametry pro fyzickou přejímku.
+
+Fyzická LG přejímka zatím neproběhla. Před sloučením na konkrétní TV:
+
+1. Ručně nainstalovat nově sestavené IPK. Verze přijímače se v této větvi nemění,
+   průvodce proto již nainstalovanou stejnou verzi automaticky nepřepíše.
+2. Ve Standardním režimu přerušit Wi-Fi/LAN TV a obnovit ji, potom opakovat se změnou
+   IP. Ověřit návrat českých titulků bez ručního zavření přijímače.
+3. Ve Story přerušit spojení uprostřed druhé stránky. Ověřit pokračování stejné
+   stránky, opakované potvrzení dočtené repliky a funkční volby po návratu.
+4. Ukončit/znovu spustit přijímací službu při otevřeném UI a prověřit obnovu odběru.
+   Při úplném zavření aplikace se nesmí přijímač sám otevírat ani pokračovat ve čtení.
+5. Nechat hru bez dialogu alespoň minutu: živá služba se nesmí zbytečně restartovat.
+   Ověřit také Standardní režim po přepnutí ze Story.
+
 ## PC-001 – stabilizace víceřádkového OCR na Androidu, 16. 11. 2026
 
 - Větev `codex/pc-001-multiline-text` z `origin/master` (`bc5237d`). Bez vydání
@@ -164,6 +190,7 @@ node webos/test-input.cjs
 node webos/test-receiver.cjs
 node webos/test-story.cjs
 node webos/test-controls.cjs
+node webos/test-recovery.cjs
 python3 webos/build.py
 git diff --check
 ```

@@ -10,8 +10,8 @@ const { once } = require('node:events');
     const discovery = dgram.createSocket('udp4');
     const sender = dgram.createSocket('udp4');
     const sockets = [], timers = new Set();
-    const handlers = {};
-    let pending;
+    const handlers = {}, errors = [];
+    let pending, nextListening;
     const watchdog = setTimeout(() => { console.error('UDP test timeout'); process.exit(1); }, 5000);
     function Service() { this.register = (name, request, cancel) => { handlers[name] = { request, cancel }; }; }
     try {
@@ -30,7 +30,10 @@ const { once } = require('node:events');
                     const bind = socket.bind.bind(socket), send = socket.send.bind(socket);
                     socket.bind = (port, host, callback) => {
                         assert.equal(port, 41989);
-                        bind(0, '127.0.0.1', callback);
+                        bind(0, '127.0.0.1', () => {
+                            callback();
+                            if (nextListening) { const done = nextListening; nextListening = null; done(); }
+                        });
                     };
                     socket.send = (data, port, host, callback) => {
                         if (port === 41988) {
@@ -45,11 +48,16 @@ const { once } = require('node:events');
             },
             Buffer, console,
             setInterval(callback, ms) { const timer = setInterval(callback, ms); timers.add(timer); return timer; },
-            clearInterval(timer) { clearInterval(timer); timers.delete(timer); }
+            clearInterval(timer) { clearInterval(timer); timers.delete(timer); },
+            setTimeout(callback, ms) {
+                const timer = setTimeout(() => { timers.delete(timer); callback(); }, ms);
+                timers.add(timer); return timer;
+            },
+            clearTimeout(timer) { clearTimeout(timer); timers.delete(timer); }
         });
         const ready = new Promise(resolve => {
             handlers.listen.request({ isSubscription: true, uniqueToken: 'udp-test', respond(result) {
-                assert.equal(result.returnValue, true, result.errorText);
+                if (!result.returnValue) { errors.push(result.errorText); return; }
                 if (result.ready) resolve();
                 if (result.packet && pending) { pending(result); pending = null; }
             } });
@@ -89,11 +97,23 @@ const { once } = require('node:events');
         const acknowledged=once(sender,'message');
         await new Promise(resolve=>handlers.storyAck.request({payload:{id,state:'done'},respond:r=>{assert.equal(r.returnValue,true);resolve()}}));
         assert.equal((await acknowledged)[0].toString(),'PCA1\t'+id+'\tdone');
-        const closed = once(sockets[0], 'close');
+        const restored = new Promise(resolve => { nextListening = resolve; });
+        const failed = sockets[0];
+        failed.emit('error', { code: 'ENETDOWN' });
+        await restored;
+        assert.equal(sockets.length, 2);
+        assert.deepEqual(errors, ['Příjem UDP selhal: ENETDOWN']);
+        const afterRecovery = new Promise(resolve => { pending = resolve; });
+        sender.send(Buffer.from('PCT1\t43\t6000\tČeský titulek po obnově\t'), sockets[1].address().port, '127.0.0.1');
+        assert.equal((await afterRecovery).packet.text, 'Český titulek po obnově');
+        const capabilityAfterRecovery = once(sender, 'message');
+        sender.send(Buffer.from('PCQ1\t'+id), sockets[1].address().port, '127.0.0.1');
+        assert.equal((await capabilityAfterRecovery)[0].toString(), 'PCA1\t'+id+'\tready');
+        const closed = once(sockets[1], 'close');
         handlers.listen.cancel({ uniqueToken: 'udp-test' });
         await closed;
         assert.equal(timers.size, 0);
-        console.log('OK: skutečné UDP discovery, příjem českého víceřádkového paketu a zavření socketu po odhlášení.');
+        console.log('OK: skutečné UDP discovery, české titulky a Story dotaz po obnově socketu, zavření po odhlášení.');
     } finally {
         clearTimeout(watchdog);
         timers.forEach(clearInterval);

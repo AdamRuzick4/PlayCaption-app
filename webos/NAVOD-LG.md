@@ -198,7 +198,9 @@ instaluj přes Install novějšího IPK a přijímač znovu spusť.
 | Problém | Co zkontrolovat |
 |---|---|
 | LG upozorní, že nepodporuje Story | Na Androidu zvol Standardní režim. Samostatný LG přijímač 0.1.0 Story frontu nepodporuje; samotné vyšší číslo verze nestačí. |
-| V seznamu je jen „Jen telefon“ | Na LG otevři PlayCaption LG a vyber HDMI. Pak na Android zařízení znovu podrž 📺 Televize. Ověř společnou síť bez izolace klientů. |
+| Telefon LG nenajde | Na TV otevři PlayCaption LG. V telefonu otevři **Výstup titulků → Změnit → Vybrat / změnit televizi → Připojit LG podle IP** a zadej aktuální IP z nastavení sítě TV. Přímý dotaz funguje u přijímačů s podporou přímého hledání. |
+| Přímá kontrola LG neodpovídá | Ověř IP, společnou domácí síť a spusť přijímač znovu. Síť pro hosty může bránit i přímému spojení. Pokud problém trvá, přilož řádek **[LG příjem]** ze Záznamu v telefonu. |
+| Přímá kontrola prošla, ale ve hře nejsou titulky | Potvrď **Připojit**. Na LG nad HDMI otevři nabídku **OK / Zpět**. Zkontroluj stáří posledních dat a posledního titulku. **Zkušební titulek** ověří samotné vykreslení překryvu. |
 | Android chce přebírat přihlášení z TV | Jsi v jiném průvodci. Dej Zrušit → Hotovo – hrát → přepínač 📺 Televize vpravo nahoře. |
 | Překlad chybí na zařízení i LG | Nejprve řeš čtení/překlad na Android zařízení; LG dostává až jeho hotový výsledek. |
 | Na zařízení překlad je, na LG není | Ověř vybranou LG a spuštěný přijímač. Po výpadku delším než 5 s se na LG schová starý text. |

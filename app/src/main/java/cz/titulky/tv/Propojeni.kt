@@ -294,20 +294,60 @@ object Propojeni {
             .map { Televize(it.id, it.jmeno, it.ip, false) }
         Thread {
             val zamek = zamekSite(context)
-            val nalezene = try { hledejVSiti(doba, ulozene) } finally { runCatching { zamek?.release() } }
+            val adresaSite = when (profily.platforma) {
+                TvPlatforma.WEBOS, TvPlatforma.NEZNAMA -> "255.255.255.255"
+                else -> null
+            }
+            val nalezene = try { hledejVSiti(doba, ulozene, adresaSite) } finally { runCatching { zamek?.release() } }
             hotovo(nalezene)
         }.apply { isDaemon = true }.start()
     }
 
-    /** Broadcast zůstává pro Android TV i starší LG; známé LG navíc ověříme přímo. */
-    internal fun hledejVSiti(doba: Long, ulozene: List<Televize>): List<Televize> {
+    private fun nonceHledani() = java.util.UUID.randomUUID().toString().replace("-", "")
+    private fun dotazLg(nonce: String) = "PLAYCAPTION_FIND\t$nonce".toByteArray(Charsets.UTF_8)
+
+    private fun odpovedLg(p: DatagramPacket, nonce: String): Televize? {
+        val pole = String(p.data, p.offset, p.length, Charsets.UTF_8).split('\t')
+        if (p.port != PORT_TITULKY || pole.size != 5 || pole[0] != OHLASENI || pole[4] != nonce ||
+            !TvProfily.maIdLg(pole[1]) || pole[3] != "0") return null
+        return Televize(pole[1], pole[2], p.address.hostAddress ?: return null, false)
+    }
+
+    /** Dotaz z vlastního portu funguje i bez broadcastu a bez uloženého profilu. */
+    internal fun overLgNaAdrese(adresa: InetAddress, ocekavaneId: String?, cekaniMs: Int = 1000): Televize? {
+        val nonce = nonceHledani()
+        val data = dotazLg(nonce)
+        DatagramSocket().use { socket ->
+            socket.connect(adresa, PORT_TITULKY)
+            val paket = DatagramPacket(ByteArray(512), 512)
+            repeat(3) {
+                socket.send(DatagramPacket(data, data.size, adresa, PORT_TITULKY))
+                val konec = System.nanoTime() + cekaniMs * 1_000_000L
+                while (System.nanoTime() < konec) {
+                    socket.soTimeout = ((konec - System.nanoTime()) / 1_000_000L).toInt().coerceAtLeast(1)
+                    paket.length = paket.data.size
+                    try { socket.receive(paket) } catch (_: SocketTimeoutException) { break }
+                    val tv = odpovedLg(paket, nonce) ?: continue
+                    if (ocekavaneId != null && tv.id != ocekavaneId) throw LgInstalacniChyba(LgChyba.IDENTITA)
+                    return tv
+                }
+            }
+        }
+        return null
+    }
+
+    /** Starší přijímače se dál hlásí samy; aktuální LG odpoví i na dotaz telefonu. */
+    internal fun hledejVSiti(doba: Long, ulozene: List<Televize>, adresaSite: String? = null): List<Televize> {
         val nalez = LinkedHashMap<String, Televize>()
         fun ted() = System.nanoTime() / 1_000_000
-        val nonce = java.util.UUID.randomUUID().toString().replace("-", "")
-        val dotaz = "PLAYCAPTION_FIND\t$nonce".toByteArray(Charsets.UTF_8)
+        val nonce = nonceHledani()
+        val nonceSite = adresaSite?.let { nonceHledani() }
+        val dotazy = ulozene.map { it.ip }.distinct().map { it to dotazLg(nonce) }.toMutableList()
+        if (adresaSite != null && nonceSite != null) dotazy.add(adresaSite to dotazLg(nonceSite))
         runCatching {
             // Přímé odpovědi patří jen tomuto hledání, i když běží další hledání na 41988.
             DatagramSocket().use { prime ->
+                prime.broadcast = true
                 prime.soTimeout = 1
                 DatagramSocket(null).apply {
                     reuseAddress = true
@@ -320,8 +360,8 @@ object Propojeni {
                     val buf = ByteArray(512)
                     while (ted() < konec) {
                         if (ted() >= dalsiDotaz) {
-                            ulozene.distinctBy { it.ip }.forEach { tv -> runCatching {
-                                val kam = InetAddress.getByName(tv.ip)
+                            dotazy.forEach { (ip, dotaz) -> runCatching {
+                                val kam = InetAddress.getByName(ip)
                                 prime.send(DatagramPacket(dotaz, dotaz.size, kam, PORT_TITULKY))
                             } }
                             dalsiDotaz = ted() + 1000
@@ -329,16 +369,19 @@ object Propojeni {
                         for (prijem in listOf(prime, s)) {
                             val p = DatagramPacket(buf, buf.size)
                             try { prijem.receive(p) } catch (e: SocketTimeoutException) { continue }
+                            if (prijem === prime) {
+                                val tv = nonceSite?.let { odpovedLg(p, it) } ?: odpovedLg(p, nonce)?.takeIf { tv ->
+                                    ulozene.any { it.ip == tv.ip && it.id == tv.id }
+                                }
+                                if (tv != null) nalez[tv.id] = tv
+                                continue
+                            }
                             val casti = String(p.data, 0, p.length, Charsets.UTF_8).split("\t")
                             if (casti.size < 3 || casti[0] != OHLASENI || casti[1] == Predavani.mojeId) continue
                             val ip = p.address.hostAddress ?: continue
-                            // Přímá odpověď: 5. pole je nonce tohoto hledání a musí sedět uložené ID i IP.
-                            // Broadcast: 5. pole je volitelná verze přijímače (Samsung od 1.3.0), nonce v něm není.
-                            val prima = prijem === prime
-                            if (prima && (casti.size != 5 || casti[4] != nonce || ulozene.none { it.id == casti[1] && it.ip == ip })) continue
                             nalez[casti[1]] = Televize(casti[1], casti[2], ip,
                                 when (casti.getOrNull(3)?.trim()) { "1" -> true; "0" -> false; else -> null },
-                                if (prima) null else SamsungPrijimac.verze(casti.getOrNull(4)))
+                                SamsungPrijimac.verze(casti.getOrNull(4)))
                         }
                     }
                 }
@@ -368,7 +411,8 @@ object Propojeni {
         @Volatile private var napoveda = ""
         /** Barvy jmen postav (u každého řádku, 0 = bez barvy). */
         @Volatile private var barvy: IntArray? = null
-        @Volatile private var generace = 0L
+        @Volatile internal var generace = 0L
+            private set
         private val zamek = Any()
         /** Poloha a velikost titulků na televizi: střed X, spodní hrana Y, šířka (0..1), velikost písma (1 = normální). */
         @Volatile private var rozvrh: FloatArray? = null
@@ -463,6 +507,14 @@ object Propojeni {
                 if (puvodni != null) vycistiCil(puvodni, cislo, cisloVoleb)
                 if (ip != null) spustOpakovani(generace)
             }
+        }
+
+        /** Stejný profil na nové IP zachová titulky a volby. Na původní IP už může bydlet jiná TV. */
+        internal fun presmerujStejnouTv(ip: String?) = synchronized(zamek) {
+            generace++
+            prenos.reset(generace)
+            cilIp = ip
+            if (ip != null) spustOpakovani(generace)
         }
 
         private fun vycistiCil(ip: String, titulekId: Long, volbyId: Long) {

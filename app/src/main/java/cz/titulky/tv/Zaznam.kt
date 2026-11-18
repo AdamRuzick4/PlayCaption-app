@@ -18,6 +18,13 @@ import java.io.File
 
 /** Diagnostika – záznam (pád, titulky.log, chiaki.log) přes celou obrazovku – stačí vyfotit a poslat. */
 object Zaznam {
+    internal fun lgPrijem(activity: Activity, zprava: String) {
+        runCatching {
+            val cas = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.ROOT).format(java.util.Date())
+            File(activity.filesDir, "titulky.log").appendText("$cas [LG příjem] $zprava\n")
+        }
+    }
+
     /** Celý text záznamu (pád, stav, titulky.log, xbox.log, chiaki.log). */
     fun obsah(a: Activity): String {
         fun konec(jmeno: String, radku: Int): String = runCatching {

@@ -93,8 +93,12 @@ class RemotePlayService : Service() {
     private val tvProfily by lazy { TvProfily(this) }
     private fun platformaCile() = TvProfily.aktivniId?.let { tvProfily.platformaPrijimace(it) } ?: TvPlatforma.NEZNAMA
     private fun pozadujePribeh() = telefon && nast.pribehovy && nast.dialogy
-    private fun chcePribeh() = pozadujePribeh() && PodporaPribehu.pouzit(
-        Propojeni.Vysilac.cilIp, pribehSpojeni?.takeIf { it.podporujePribeh }?.ip)
+    private fun chcePribeh(): Boolean {
+        if (!pozadujePribeh()) return false
+        val ip = Propojeni.Vysilac.cilIp
+        if (ip == null && platformaCile() == TvPlatforma.WEBOS) return false
+        return PodporaPribehu.pouzit(ip, pribehSpojeni?.takeIf { it.podporujePribeh }?.ip)
+    }
     private fun pribehId(t: CteciFronta.Token) = "$pribehSession.${t.relace}.${t.poradi}.${t.revize}"
     private fun zrusPribeh(vycistitTelefon: Boolean = true) {
         pribeh.reset()
@@ -113,13 +117,23 @@ class RemotePlayService : Service() {
         }
     }
     private fun kontextPribehu() {
-        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${rucniOblast()?.joinToString()}:${Propojeni.Vysilac.cilIp}:${TvProfily.aktivniId}:${platformaCile()}"
+        val ip = Propojeni.Vysilac.cilIp
+        val platforma = platformaCile()
+        val lg = platforma == TvPlatforma.WEBOS
+        val cil = if (lg) TvProfily.aktivniId else ip
+        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${rucniOblast()?.joinToString()}:$cil:${TvProfily.aktivniId}:$platforma"
         val zmena = klic != pribehKontext
         if (zmena) {
             zrusPribeh(vycistitTelefon = false)
             pribehKontext = klic
+        } else if (lg && pribehSpojeni?.let { it.ip != ip } == true) {
+            pribehSpojeni?.close()
+            pribehSpojeni = null
+            pribehPristiPokus = 0
         }
         val aktivni = chcePribeh() && bezi
+        // Stejná LG po přesunu znovu potvrzuje Story. Rozečtenou stránku zatím ponech ve frontě.
+        if (!zmena && lg && bezi && pozadujePribeh() && pribehBylAktivni && !aktivni) return
         if (aktivni != pribehBylAktivni || (zmena && pribehBylAktivni)) {
             pribeh.reset(); pribehAktualni = null; pribehLokalni = null
             pribehZacal = false
@@ -297,7 +311,7 @@ class RemotePlayService : Service() {
     private fun drzWifi(ano: Boolean) {
         napajeniZapnuto = ano
         runCatching {
-            val lg = TelefonPozadi.pokracovatNaLg(ano && aktivni, Propojeni.Vysilac.cilIp,
+            val lg = TelefonPozadi.pokracovatNaLg(ano && aktivni, TvProfily.aktivniId,
                 TvProfily.aktivniId?.let { TvProfily(this).najdi(it)?.platforma })
             if (lg) {
                 if (cpuZamek == null) cpuZamek = (getSystemService(POWER_SERVICE) as android.os.PowerManager)

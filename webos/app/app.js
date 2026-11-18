@@ -33,7 +33,9 @@
     var otherSender = false;
     var receiverReady = false;
     var receiverNetworkReady = true;
-    var receiverStartedAt = 0;
+    var receiverSeenAt = 0;
+    var receiverRetryAt = 0;
+    var receiverRetryDelay = 2000;
     var receiverFailure = false;
     var receiverLabel = "LG PlayCaption";
     var receiverVersion = "neznámá";
@@ -179,19 +181,20 @@
     }
 
     function clearText(preserveStory) {
-        if (receiverUI) {
-            if (preserveStory && receiverUI.storyActive()) receiverUI.pauseStory(Date.now()); else receiverUI.clear();
-        }
+        var keepStory = preserveStory && receiverUI && receiverUI.storyActive();
+        if (receiverUI) receiverUI.clear(preserveStory, Date.now());
         subtitle.hidden = true;
         hint.hidden = true;
         hint.textContent = "";
         lastId = null;
-        source = null;
+        if (!keepStory) source = null;
         lastSeen = 0;
         otherSender = false;
     }
 
     function stop() {
+        receiverRetryAt = 0; receiverRetryDelay = 2000;
+        cancelStoryAck();
         showControls(false);
         hiddenByUser = false; testUntil = 0; lastDataAt = 0; lastCaptionAt = 0;
         receiverReady = false; otherSender = false;
@@ -210,11 +213,7 @@
             activityBridge.cancel();
             activityBridge = null;
         }
-        if (bridge) {
-            bridge.onservicecallback = function () {};
-            bridge.cancel();
-            bridge = null;
-        }
+        disconnectReceiver();
         clearText();
         activityWarning = "";
         protocolWarning = "";
@@ -242,13 +241,33 @@
         request.call("luna://com.webos.surfacemanager.screenSaver/restartUserActivityTimer", "{}");
     }
 
-    var ackBridge = null;
+    var ackBridge = null, ackTimer = null;
+    function cancelStoryAck() {
+        if (ackTimer !== null) clearTimeout(ackTimer);
+        ackTimer = null;
+        var previous = ackBridge; ackBridge = null;
+        if (previous) { try { previous.cancel(); } catch (error) {} }
+    }
     function storyAck(id, state) {
         if (ackBridge) return;
         var request = new PalmServiceBridge(); ackBridge = request;
-        var timeout = setTimeout(function () { if (ackBridge === request) { ackBridge = null; request.cancel(); } }, 2000);
-        request.onservicecallback = function () { clearTimeout(timeout); if (ackBridge === request) ackBridge = null; };
+        ackTimer = setTimeout(function () { if (ackBridge === request) cancelStoryAck(); }, 2000);
+        request.onservicecallback = function () {
+            if (ackBridge !== request) return;
+            clearTimeout(ackTimer); ackTimer = null; ackBridge = null;
+        };
         request.call("luna://cz.playcaption.overlaytest.receiver/storyAck", JSON.stringify({id:id,state:state}));
+    }
+    function retryReceiver(message) {
+        receiverReady = false; receiverFailure = true;
+        protocolWarning = "";
+        cancelStoryAck();
+        clearText(true);
+        if (!receiverRetryAt) {
+            receiverRetryAt = Date.now() + receiverRetryDelay;
+            receiverRetryDelay = Math.min(receiverRetryDelay * 2, 15000);
+        }
+        showStatus(message + " · Obnovuji příjem…");
     }
     function receive(raw) {
         var result;
@@ -256,19 +275,14 @@
             result = JSON.parse(raw);
             if (!result || typeof result !== "object") throw new Error("Neplatná odpověď");
         } catch (error) {
-            receiverReady = false; receiverFailure = true;
-            protocolWarning = "";
-            clearText();
-            showStatus("PlayCaption: neplatná odpověď přijímače. Zkus aplikaci spustit znovu.");
+            retryReceiver("PlayCaption: neplatná odpověď přijímače");
             return;
         }
         if (!result.returnValue) {
-            receiverReady = false; receiverFailure = true;
-            protocolWarning = "";
-            clearText();
-            showStatus("PlayCaption: " + (result.errorText || "přijímač není dostupný"));
+            retryReceiver("PlayCaption: " + (result.errorText || "přijímač není dostupný"));
             return;
         }
+        receiverSeenAt = Date.now();
         if (result.unsupportedStory) {
             protocolWarning = "PlayCaption LG · Tento přijímač nepodporuje Story. Na zařízení přepni na Standardní režim.";
             showStatus(statusText); updateInfo(Date.now()); return;
@@ -279,13 +293,15 @@
             var name = typeof result.name === "string" ? result.name.slice(0, 64) : "LG PlayCaption";
             receiverLabel = name; receiverReady = Boolean(result.ready);
             receiverNetworkReady = result.networkReady !== false;
-            if (receiverReady) receiverFailure = false;
-            showStatus(result.ready && !receiverNetworkReady ? "PlayCaption LG · Čekám na síť TV. Zkontroluj Wi-Fi nebo síťový kabel · OK / Zpět = nabídka" : result.ready ? "PlayCaption LG · Čekám na zařízení. Vyber „" + name + "“ · OK / Zpět = nabídka" : receiverFailure ? statusText : "PlayCaption LG · Spouštím příjem…");
+            if (receiverReady) { receiverFailure = false; receiverRetryAt = 0; receiverRetryDelay = 2000; }
+            if (!receiverNetworkReady) clearText(true);
+            if (!lastSeen) showStatus(result.ready && !receiverNetworkReady ? "PlayCaption LG · Čekám na síť TV. Zkontroluj Wi-Fi nebo síťový kabel · OK / Zpět = nabídka" : result.ready ? "PlayCaption LG · Čekám na zařízení. Vyber „" + name + "“ · OK / Zpět = nabídka" : receiverFailure ? statusText : "PlayCaption LG · Spouštím příjem…");
             return;
         }
         var now = Date.now();
         if (packet.kind === "subtitle" || packet.kind === "story") protocolWarning = "";
         receiverReady = true; receiverFailure = false;
+        receiverRetryAt = 0; receiverRetryDelay = 2000;
         lastDataAt = now;
         statusText = "Zařízení posílá platná data. OK / Zpět = nabídka";
         var connectionChanged = source !== result.source || (lastSeen && now - lastSeen > 5000);
@@ -330,27 +346,42 @@
         }
     }
 
+    function disconnectReceiver() {
+        var previous = bridge; bridge = null;
+        if (previous) {
+            previous.onservicecallback = function () {};
+            try { previous.cancel(); } catch (error) {}
+        }
+    }
+    function connectReceiver() {
+        disconnectReceiver();
+        cancelStoryAck();
+        receiverRetryAt = 0;
+        receiverSeenAt = Date.now(); receiverReady = false; receiverFailure = false;
+        try {
+            var request = new PalmServiceBridge();
+            bridge = request;
+            request.onservicecallback = function (raw) { if (bridge === request) receive(raw); };
+            request.call("luna://cz.playcaption.overlaytest.receiver/listen", JSON.stringify({ subscribe: true }));
+        }
+        catch (error) { retryReceiver("PlayCaption LG · Volání služby přijímače selhalo"); }
+    }
+
     function start() {
         stop();
-        receiverStartedAt = Date.now(); receiverFailure = false;
         hint.textContent = "";
         showStatus("PlayCaption · Spouštím příjem…");
         if (typeof PalmServiceBridge === "undefined") {
             showStatus("PlayCaption: příjem je dostupný pouze na LG webOS.");
             return;
         }
-        var request = new PalmServiceBridge();
-        bridge = request;
-        request.onservicecallback = function (raw) { if (bridge === request) receive(raw); };
-        try { request.call("luna://cz.playcaption.overlaytest.receiver/listen", JSON.stringify({ subscribe: true })); }
-        catch (error) { receiverFailure = true; showStatus("PlayCaption LG · Volání služby přijímače selhalo. Zavři aplikaci a spusť ji znovu."); }
+        connectReceiver();
         keepOverlayOpen();
         timer = setInterval(function () {
             var now = Date.now();
-            if (!receiverReady && !receiverFailure && now - receiverStartedAt >= 10000) {
-                receiverFailure = true;
-                showStatus("PlayCaption LG · Služba nepotvrdila spuštění příjmu do 10 s. Zavři aplikaci a spusť ji znovu · OK / Zpět = nabídka");
-            }
+            if (receiverRetryAt && now >= receiverRetryAt) connectReceiver();
+            if (!receiverRetryAt && now - receiverSeenAt >= 10000)
+                retryReceiver("PlayCaption LG · Služba nepotvrdila spuštění příjmu nebo přestala odpovídat");
             if (receiverUI) {
                 if (lastSeen && now - lastSeen > 5000) receiverUI.pauseStory(now);
                 pauseMaskedStory(now);

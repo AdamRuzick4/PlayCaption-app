@@ -194,16 +194,19 @@
             if (now >= greenUntil) subtitle.style.outline = "";
         };
 
-        this.clear = function () {
-            // Při restartu UI se nedočtená replika musí přečíst znovu, nikoli falešně potvrdit.
-            if (storyMode && !storyDone) storyId = null;
+        this.clear = function (preserveStory, now) {
+            if (preserveStory && storyMode) this.pauseStory(now);
+            else {
+                // Při restartu UI se nedočtená replika musí přečíst znovu, nikoli falešně potvrdit.
+                if (storyMode && !storyDone) storyId = null;
+                captionPacket = null; captionOffset = captionNext = captionUntil = 0;
+                storyMode = false; storyDone = true; storyPaused = false;
+            }
             choices.hidden = true; yellow.hidden = true; blue.hidden = true;
             choices.textContent = "";
             subtitle.style.outline = "";
             lastChoiceId = null; lastFrameMode = 0;
             choicesUntil = yellowUntil = blueUntil = greenUntil = 0;
-            captionPacket = null; captionOffset = captionNext = captionUntil = 0;
-            storyMode = false; storyDone = true; storyPaused = false;
         };
     };
 }());
