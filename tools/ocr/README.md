@@ -53,3 +53,35 @@ Bez lokálních PNG se tento volitelný test označí jako přeskočený, aby ne
 Před laděním P1 dodat stejný snímek před/po produkčním ořezu, původní I420 Y/U/V nebo RGB referenci, ruční přepis a geometrii řádků. Zaznamenat rozlišení/stride, požadovaný profil, dekodér a monotónní časy jednotlivých fází. Den/noc, pohyb, font, HUD a režim jsou samostatné štítky; samotná tma není doložená příčina lepšího OCR.
 
 Pro každé A/B srovnání použít totožnou sadu a zaznamenat verzi kódu, model Androidu/API, ML Kit verzi, variantu, cold/warm pořadí a počet opakování. CPU/RAM, přijaté FPS/datový tok, úplnost replik a celková P50/P95 se musí měřit zvlášť. Současný runner tyto hodnoty neměří.
+
+## Záchranné čtení bílých titulků z projektu playcaption-lg-native
+
+Android ponechá první výsledek ML Kit. Pouze v režimu telefonu/tabletu, po
+prázdném dialogu bez nápovědy na světlé scéně, hledá ve stejném pásu řádky
+s hranami bílých znaků. Z LG 0.1.17 používá podmínku alespoň 25 % světlých
+a 2 % téměř bílých pixelů uvnitř vybrané oblasti a převod jasu 160–240 na
+0–255. Opakuje nejvýše jedno čtení téhož pásu se stejnými souřadnicemi.
+Původní barvy pro jména, běžné čtení voleb a cesta „Jen televize“ tuto úpravu
+nepoužívají.
+
+Párový replay na tabletu 2405CRPFDG použil 177 výřezů a variant z manifestu
+LG, včetně 41 bez titulku. Při měřítku 1,05× přes produkční čtečku dialogu bylo
+přesných 152/177 původních výsledků. Použití zvýrazněné varianty jen po
+prázdném výsledku dalo 153/177. Prázdných čtení na obrazech s titulkem ubylo
+ze 17 na 15, u druhé zachráněné repliky zůstalo chybné první písmeno. Všech
+41 výřezů bez dialogu zůstalo prázdných. Přesná shoda zde ignoruje velikost
+písmen a interpunkci. Jde o přehrání připravených výřezů GTA V bez živého
+Remote Play, výběru pásu službou či překladu. Latence při hraní ani jiné hry
+nebyly změřeny.
+
+Pro opakování použij izolovaná diagnostická APK z postupu výše. Do jejich
+soukromého úložiště připrav pouze snímky a anotace (Python potřebuje Pillow):
+
+```sh
+replay=$(mktemp -d)
+python3 tools/ocr/lg_replay.py prepare ../playcaption-lg-native "$replay/lg-ocr"
+(cd "$replay" && COPYFILE_DISABLE=1 tar czf - lg-ocr) | adb shell -T 'run-as cz.titulky.tv.ocrbenchmark sh -c "mkdir -p files && cd files && tar xzf -"'
+adb shell am instrument -w -e class cz.titulky.tv.SvetlyDialogBenchmark cz.titulky.tv.ocrbenchmark.test/androidx.test.runner.AndroidJUnitRunner
+adb exec-out run-as cz.titulky.tv.ocrbenchmark cat files/lg-ocr/result.json > "$replay/result.json"
+python3 tools/ocr/lg_replay.py score "$replay/result.json"
+```

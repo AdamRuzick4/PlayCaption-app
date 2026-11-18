@@ -910,15 +910,20 @@ class RemotePlayService : Service() {
                     obsazeno[c].set(false)
                     return@prectiPosledniTitulek
                 }
-                // Dialog nenalezen, ale je tu nápověda (RDR2: "Hold ⓧ to continue following") nebo je scéna světlá:
-                // dialog nad nápovědou se ve sněhu/mlze často vůbec nenajde (čte se jen pruh s nápovědou)
-                // → přečíst ještě jednou celou oblast titulků, ve světlejší scéně s vytaženým kontrastem
-                // (jen kvůli nápovědě: televize má jedinou čtečku – každý druhý pokus ji zabere na další ~1 s
-                // a nový titulek se mezitím nepřečte; čistě světlá scéna bez nápovědy proto druhý pokus nedělá)
-                if (!druhyPokus && !uspora && surovy.repliky.isEmpty() && surovy.napoveda != null && (!CIST_NAD_NAPOVEDOU || zacatek - napovedaKdy >= 5000)) {
-                    stKontrast++
-                    val znovu = try { if (jas > 110) kontrastniPas(vyrez) else if (uzkyPas) celaOblast(vyrez) else null } catch (e: Throwable) { null }
+                if (!druhyPokus && !uspora && surovy.repliky.isEmpty() && cislo >= posledniVysledek) {
+                    // Nápověda může zakrýt dialog: dosavadní opakování čte celou oblast.
+                    // Telefon může navíc zachránit bílé písmo na světlém pozadí ve stejném pásu.
+                    val znovu = when {
+                        surovy.napoveda != null && (!CIST_NAD_NAPOVEDOU || zacatek - napovedaKdy >= 5000) ->
+                            runCatching {
+                                if (jas > 110) kontrastniPas(vyrez) else if (uzkyPas) celaOblast(vyrez) else null
+                            }.getOrNull()
+                        telefon && surovy.napoveda == null && jas > 110 ->
+                            zvyraznenyPas(pas)
+                        else -> null
+                    }
                     if (znovu != null) {
+                        stKontrast++
                         cti(c, cislo, zacatek, vyrez, znovu, svetla, druhyPokus = true, odX, odY, sirkaObrazu, vyskaObrazu, ctecka, jas = jas)
                         return@prectiPosledniTitulek
                     }
@@ -1494,6 +1499,15 @@ class RemotePlayService : Service() {
         } else Bitmap.createBitmap(v.bitmapa, 0, 0, v.w, vys)
         val mensi = Bitmap.createScaledBitmap(bmp, (v.w * meritkoCteni).toInt(), (vys * meritkoCteni).toInt().coerceAtLeast(8), true)
         return Pas(mensi, 0, meritkoCteni)
+    }
+
+    private fun zvyraznenyPas(pas: Pas): Pas? {
+        val bmp = pas.bitmapa
+        val pixely = IntArray(bmp.width * bmp.height)
+        bmp.getPixels(pixely, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        val upravene = SvetlyDialog.priprav(pixely, bmp.width, bmp.height) ?: return null
+        return Pas(Bitmap.createBitmap(upravene, bmp.width, bmp.height, Bitmap.Config.ARGB_8888),
+            pas.nahore, pas.meritko, pas.vlevo)
     }
 
     /**

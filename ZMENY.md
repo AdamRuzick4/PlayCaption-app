@@ -6,7 +6,8 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- Když telefon nebo tablet na světlém obraze nepřečte dialog ani nápovědu,
+  může jednou zopakovat OCR se zvýrazněnými bílými tahy písma.
 
 ## 0.22 (versionCode 35)
 
