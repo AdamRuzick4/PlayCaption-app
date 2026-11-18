@@ -2,10 +2,11 @@ package cz.titulky.tv
 
 /** Napojení finálních překladů na jedinou čtecí frontu. Volat na jednom vlákně. */
 internal class PribehovaRelace(
-    private val preloz: (List<String>, (String) -> Unit, () -> Unit) -> Unit,
+    private val preloz: (List<String>, String, (String) -> Unit, () -> Unit) -> Unit,
     private val hlaseni: (String) -> Unit
 ) {
     private val fronta = CteciFronta()
+    private val historie = KontextPrekladu()
     private var posledni: CteciFronta.Token? = null
     private val barvy = linkedMapOf<CteciFronta.Token, IntArray>()
     private var posledniOcr = -1L
@@ -61,7 +62,8 @@ internal class PribehovaRelace(
         } else fronta.zarad(ted) ?: run { hlaseni("Příběhová fronta je plná — přepni do Standardního režimu."); return }
         posledni = token
         barvy[token] = jmena.copyOf()
-        preloz(text.toList(), { cesky ->
+        val kontext = historie.prijmi(token.poradi, text.joinToString("\n"), ted)
+        preloz(text.toList(), kontext, { cesky ->
             if (cesky.isBlank()) chyba(token)
             else if (fronta.priprav(token, listOf(cesky)) == CteciFronta.Prijeti.LIMIT_TEXTU) chyba(token)
         }, { chyba(token) })
@@ -85,6 +87,7 @@ internal class PribehovaRelace(
         if (fronta.chybaZobrazeni(token)) { barvy.remove(token); hlaseni("Replika se nevešla do přenosu na TV.") }
     }
     fun reset() {
+        historie.reset()
         skladani.reset(); posledniSamostatnyZdroj = null; ocrText = ""; cekaNaVetu = false; posledniOcr = -1; zdrojId = 0; zdrojRevize = 0; casVstupu = 0; cekaniPovoleno = true
         fronta.reset(); barvy.clear(); posledni = null
     }

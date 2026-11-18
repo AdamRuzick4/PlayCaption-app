@@ -15,11 +15,17 @@ Na [předvedené sestavě](https://www.youtube.com/watch?v=N_jr-jix7TE) funguje 
 - Pro **Samsung (Tizen)** je dostupný experimentální přijímač titulků z Android telefonu/tabletu: [návod pro Samsung](tizen/NAVOD-SAMSUNG.md). Vyžaduje Developer Mode a účet Samsung; instalaci zatím provádí externí nástroj, protože Samsung vyžaduje podpis pro konkrétní televizi.
 - Projekt je ve stavu **beta**, sledujte [Releases](https://github.com/AdamRuzick4/PlayCaption-app/releases).
 
-Příběhový režim používá stejný hlavní překladač jako Standardní režim. Přidává
+Příběhový režim ve výchozím nastavení používá stejný hlavní překladač jako Standardní režim. Přidává
 čtecí frontu a omezené skládání některých nedokončených anglických vět. Větší
 kontext může pomoci překladu, ale nejde o jiný překladový model ani o záruku
 vyšší kvality. Zpoždění závisí na OCR, síti, skládání vět a délce fronty;
 pevné zpoždění 1–2 sekundy negarantujeme.
+
+V připravované, zatím nevydané verzi lze pro dialogy Story zvolit také DeepL
+s vlastním API klíčem nebo místní ML Kit. DeepL dostává krátkou historii dialogu
+jako samostatný kontext a překládá pouze nový text. Při chybě použije místní zálohu;
+nezaručujeme lepší češtinu bez porovnání na skutečných hrách. Podrobnosti a omezení
+jsou v [popisu Story](docs/PRIBEHOVY-REZIM.md).
 
 Při online překladu se rozpoznaný text odesílá externím překladovým službám.
 Hlavní online překlad používá neoficiální rozhraní Google, jehož dostupnost ani

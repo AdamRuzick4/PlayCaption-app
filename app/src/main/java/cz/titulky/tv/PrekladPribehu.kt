@@ -4,7 +4,8 @@ package cz.titulky.tv
 internal class PrekladPribehu(
     private val online: (String, (String?) -> Unit) -> Boolean,
     private val offline: (String, (String) -> Unit, () -> Unit) -> Unit,
-    private val odloz: (Long, () -> Unit) -> Unit
+    private val odloz: (Long, () -> Unit) -> Unit,
+    private val onlinePovoleno: Boolean = true
 ) {
     fun preloz(text: String, hotovo: (String) -> Unit, chyba: () -> Unit) {
         var hotov = false; var onlineHotov = false; var offlineHotov = false; var offlineSpusten = false
@@ -22,7 +23,7 @@ internal class PrekladPribehu(
             }, { offlineHotov = true; if (onlineHotov) konec(null) })
         }
         odloz(8000) { konec(null) }
-        val spusten = online(text) { t ->
+        val spusten = onlinePovoleno && online(text) { t ->
             onlineHotov = true
             if (!t.isNullOrBlank()) konec(t)
             else { zaloha(); if (offlineHotov) konec(null) }

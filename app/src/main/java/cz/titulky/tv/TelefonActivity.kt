@@ -874,6 +874,15 @@ class TelefonActivity : Activity() {
                 text = "100 % = výchozí čas · méně % = kratší zobrazení. Platí od další stránky."
                 textSize = 12f; setTextColor(Color.parseColor("#B6B6C2"))
             })
+            casObal.addView(android.widget.Button(this@TelefonActivity).apply {
+                fun obnov() { text = "Překladač: ${nast.motorPribehu.nazev}" }
+                isAllCaps = false; obnov()
+                setOnClickListener { PrekladPribehuDialog(this@TelefonActivity, nast, ::obnov).ukaz() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+            casObal.addView(TextView(this@TelefonActivity).apply {
+                text = "Volba platí od nové repliky. DeepL: vlastní API klíč. Offline: stažený model."
+                textSize = 12f; setTextColor(Color.parseColor("#B6B6C2"))
+            })
             rezimy.addView(tlacitka)
             rezimy.addView(casObal)
             obnovRezim()
@@ -1011,6 +1020,7 @@ class TelefonActivity : Activity() {
             }
             stav.text = Texty.spojeni(nast.jazykNeboCs, spojeni)
             if (nast.pribehovy) stav.append("\n" + RemotePlayService.pribehStav)
+            if (nast.pribehovy && RemotePlayService.pribehPrekladStav.isNotBlank()) stav.append("\n" + RemotePlayService.pribehPrekladStav)
             tecka.background = zaobleni(barva)
             prepnoutKonzoli?.let { b ->
                 val ukazat = RemotePlayService.obeZapnute && RemotePlayUdaje(this@TelefonActivity).sparovano &&

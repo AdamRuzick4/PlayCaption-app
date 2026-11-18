@@ -4,17 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PrekladPribehuTest {
-    private class Sim(val obsazeno: Boolean = false) {
+    private class Sim(val obsazeno: Boolean = false, offlineRezim: Boolean = false) {
         var online: (String?) -> Unit = {}
         var offline: (String) -> Unit = {}
         var chybaOffline: () -> Unit = {}
         var zalohy = 0
+        var onlinePokusu = 0
         var chyby = 0
         val vysledky = mutableListOf<String>()
         private val ulohy = mutableListOf<Pair<Long, () -> Unit>>()
-        val preklad = PrekladPribehu({ _, callback -> online = callback; !obsazeno }, { _, ok, err ->
+        val preklad = PrekladPribehu({ _, callback -> onlinePokusu++; online = callback; !obsazeno }, { _, ok, err ->
             zalohy++; offline = ok; chybaOffline = err
-        }, { ms, callback -> ulohy += ms to callback })
+        }, { ms, callback -> ulohy += ms to callback }, onlinePovoleno = !offlineRezim)
         init { preklad.preloz("English", { vysledky += it }, { chyby++ }) }
         fun doCas(ms: Long) {
             while (ulohy.any { it.first <= ms }) {
@@ -26,6 +27,13 @@ class PrekladPribehuTest {
     @Test fun rychlyOnlineJeJedinyFinalniVysledek() {
         val s=Sim(); s.online("Český."); s.doCas(10000)
         assertEquals(listOf("Český."),s.vysledky);assertEquals(0,s.zalohy);assertEquals(0,s.chyby)
+    }
+    @Test fun offlineRezimNikdyNespustiOnlinePrekladAniPoVyprseniCasu() {
+        val s = Sim(offlineRezim = true)
+        assertEquals(0, s.onlinePokusu); assertEquals(1, s.zalohy)
+        s.offline("Místní překlad."); s.doCas(10000)
+        assertEquals(listOf("Místní překlad."), s.vysledky)
+        assertEquals(0, s.onlinePokusu); assertEquals(0, s.chyby)
     }
     @Test fun obsazenaSitPouzijeOfflineBezDalsiSitoveFronty() {
         val s=Sim(true);assertEquals(1,s.zalohy);s.offline("Záloha.");s.doCas(10000)

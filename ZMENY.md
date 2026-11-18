@@ -6,7 +6,11 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- Story: volitelný DeepL s vlastním šifrovaně uloženým API klíčem a samostatným
+  kontextem předchozích stabilních replik. Překládá a zobrazuje se pouze nový text;
+  paměť rozlišuje překladač, jazyk a kontext. Nově lze zvolit také místní ML Kit.
+  Výchozí Automaticky i Standardní režim zůstávají. Časové limity a protokoly TV
+  se nemění; kvalita češtiny a fyzická přejímka s reálným DeepL účtem ještě zbývá.
 
 ## 0.22 (versionCode 35)
 
