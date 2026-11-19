@@ -143,6 +143,14 @@
                             inputStatus.textContent = "Přepínám vstup a spouštím titulky…";
                             inputButtons.forEach(function (item) { item.disabled = true; });
                             try { localStorage.setItem("playcaption-input", device.appId); } catch (error) {}
+                            // Zapni toast režim: titulky poběží jako systémové toasty i poté,
+                            // co přepnutí na HDMI tuto appku zavře (pro TV bez overlaye přes HDMI).
+                            try {
+                                var tm = new PalmServiceBridge();
+                                tm.onservicecallback = function () {};
+                                tm.call("luna://cz.playcaption.overlaytest.receiver/toastMode",
+                                    JSON.stringify({ on: true, hello: "PlayCaption: titulky poběží jako toasty" }));
+                            } catch (error) {}
                             var switcher = new PalmServiceBridge();
                             inputBridge = switcher;
                             switcher.onservicecallback = function (answer) {
