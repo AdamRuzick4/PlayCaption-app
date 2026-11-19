@@ -2,6 +2,6 @@
   "id": "cz.playcaption.overlaytest.receiver",
   "services": [{
     "name": "cz.playcaption.overlaytest.receiver",
-    "commands": [{ "name": "listen", "public": true }, { "name": "switchInput", "public": true }, { "name": "storyAck", "public": true }]
+    "commands": [{ "name": "listen", "public": true }, { "name": "switchInput", "public": true }, { "name": "storyAck", "public": true }, { "name": "toastMode", "public": true }]
   }]
 }

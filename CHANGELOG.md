@@ -2,6 +2,7 @@
 
 ## Nevydáno
 
+- LG toast režim pro TV, které neudrží overlay přes externí HDMI vstup (ověřeno na LG UP81, webOS 6.5.3 „webOS TV Lite"). Když uživatel zvolí HDMI, UI zapne příkaz služby `toastMode`: služba se udrží aktivitou `com.webos.service.activitymanager` naživu i po zavření UI a příchozí titulek bez živého overlay-odběratele zobrazí jako systémový toast (`com.webos.notification/createToast`, stejný text se do 4 s neopakuje, předchozí toast se zkusí zavřít). Když overlay žije, toast se neposílá – režim je hybridní. Nový regresní test `test-toast.cjs`. Chování TV s funkčním overlayem přes HDMI (např. C5) se nemění.
 - Android při aktivním výstupu do LG nepoužije minutové ukončení po zhasnutí displeje. Služba pro tento stream drží CPU zámek a uvolní jej při změně výstupu, zastavení a zániku; původní Android TV a ostatní režimy zachovávají dosavadní limit. Chování na zamčeném fyzickém zařízení ještě vyžaduje přejímku.
 - README upřesňuje společný překladač a proměnlivé zpoždění Story i rozdíl HDMI signálu a interního vykreslování hry.
 

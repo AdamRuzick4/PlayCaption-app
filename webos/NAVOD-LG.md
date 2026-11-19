@@ -4,6 +4,11 @@ Tato verze zobrazuje přeložené titulky přes HDMI obraz na LG webOS. Překlad
 Android telefon nebo tablet. Nejde o aplikaci z LG Store; instalace používá Developer Mode.
 Je to experimentální podpora, zatím ověřená na LG C5.
 
+Na TV, která neudrží titulkový pruh přes externí HDMI vstup (např. levnější modely
+s „webOS TV Lite"), se titulky automaticky zobrazí jako krátké systémové notifikace
+(toasty) – menší a systémově umístěné, ale fungují i tam, kde pruh přes HDMI nejde.
+Ověřeno na LG UP81 (webOS 6.5.3). Nastavení je stejné: ve výběru zvol HDMI s konzolí.
+
 ## Co potřebuješ
 
 - LG TV s webOS a aplikací **Developer Mode** z obchodu LG Apps.

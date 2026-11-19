@@ -19,6 +19,52 @@ var sender = null;
 var senderSeen = 0;
 var rejectedAt = 0;
 
+// Toast režim: na TV, které neudrží web-overlay přes externí HDMI (např. webOS 6 Lite),
+// se titulek ukáže jako systémový toast – ten webOS kreslí i přes obraz z HDMI.
+// Službu přitom drží naživu trvalá aktivita, takže poslouchá dál i po zavření UI appky.
+var toastMode = false;
+var keepActivity = null;      // aktivita držící službu naživu (null = žádná, jinak hodnota od activityManageru)
+var lastToastId = null;
+var lastToastText = "";
+var lastToastAt = 0;
+
+function showToast(text) {
+    text = String(text == null ? "" : text).replace(/\s+/g, " ").trim().slice(0, 200);
+    var now = Date.now();
+    // stejný text do 4 s neopakuj (OCR posílá tutéž repliku z více snímků)
+    if (!text || (text === lastToastText && now - lastToastAt < 4000)) return;
+    lastToastText = text;
+    lastToastAt = now;
+    // předchozí toast zkus zavřít, ať se nehromadí (když to TV neumí, nevadí)
+    if (lastToastId) {
+        try { service.call("luna://com.webos.notification/closeToast", { toastId: lastToastId }, function () {}); } catch (error) {}
+        lastToastId = null;
+    }
+    try {
+        service.call("luna://com.webos.notification/createToast", { message: text }, function (reply) {
+            var r = reply && reply.payload;
+            if (r && r.toastId) lastToastId = r.toastId;
+        });
+    } catch (error) { /* notifikace nejsou dostupné */ }
+}
+
+// Trvalá aktivita udrží službu (a UDP socket) naživu i bez otevřené UI appky.
+function startKeepAlive() {
+    if (keepActivity !== null) return;
+    keepActivity = false; // „probíhá vytváření"
+    try {
+        service.activityManager.create("playcaption-toast-keepalive", function (value) {
+            keepActivity = value || true;
+        });
+    } catch (error) { keepActivity = null; }
+}
+function stopKeepAlive() {
+    if (keepActivity && keepActivity !== true) {
+        try { service.activityManager.complete(keepActivity, function () {}); } catch (error) {}
+    }
+    keepActivity = null;
+}
+
 function notify(payload) {
     Object.keys(subscriptions).forEach(function (key) { subscriptions[key].respond(payload); });
 }
@@ -101,6 +147,10 @@ function start() {
         senderSeen = now;
         if (packet.kind === "story") storyPeer = {id:packet.id,address:remote.address,port:remote.port};
         notify({ returnValue: true, packet: packet, source: remote.address });
+        // Hybrid: když žije web-overlay (má odběratele), ukáže titulek on (hezký pruh).
+        // Když overlay nežije (např. po přepnutí na HDMI na webOS Lite), nastoupí systémový toast.
+        if (toastMode && Object.keys(subscriptions).length === 0 &&
+            (packet.kind === "subtitle" || packet.kind === "story") && packet.text) showToast(packet.text);
     });
     receiver.bind(41989, "0.0.0.0", function () {
         if (socket !== receiver) return;
@@ -122,7 +172,24 @@ service.register("listen", function (message) {
     start();
 }, function (message) {
     delete subscriptions[message.uniqueToken];
-    if (Object.keys(subscriptions).length === 0) stop();
+    // V toast režimu nech socket otevřený i bez UI appky (poslouchá dál přes HDMI).
+    if (Object.keys(subscriptions).length === 0 && !toastMode) stop();
+});
+
+// Zapne/vypne toast režim. UI appka ho zapne, když uživatel zvolí HDMI vstup,
+// aby titulky chodily jako systémové toasty i poté, co ji přepnutí na HDMI zavře.
+service.register("toastMode", function (message) {
+    var on = !message.payload || message.payload.on !== false;
+    toastMode = on;
+    if (on) {
+        start();
+        startKeepAlive();
+        if (message.payload && message.payload.hello) showToast(String(message.payload.hello));
+    } else {
+        stopKeepAlive();
+        if (Object.keys(subscriptions).length === 0) stop();
+    }
+    message.respond({ returnValue: true, toastMode: toastMode, ready: ready });
 });
 
 service.register("storyAck", function (message) {
