@@ -266,6 +266,7 @@ class RemotePlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        LgUdrzovani.zapni(this) // starší LG zavírá překryv – znovu ho spustit
         ui.post(pribehHlidac)
         Pady.hlidej(this)
         // televize, která sama o sobě hlásí "málo paměti" → rovnou šetřit
@@ -2362,6 +2363,7 @@ class RemotePlayService : Service() {
 
     override fun onDestroy() {
         zanikla = true
+        LgUdrzovani.vypni()
         ui.removeCallbacks(pribehHlidac)
         zrusPribeh()
         relaceCteni.incrementAndGet()

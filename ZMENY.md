@@ -6,7 +6,12 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- **LG: starší televize s webOS 3.x** (ověřeno na LG 43UH6107, webOS 3.4, Node 0.12, Chromium 38).
+  Přijímač na nich padal kvůli chybějícím funkcím (`Buffer.from`, `dgram.send` se 4 argumenty,
+  `Array.find`, `findIndex`, `Array.from`, `trimEnd`…). Doplněné náhrady (`webos/app/polyfill.js`,
+  začátek `service.js` a `protocol.js`) nové TV neovlivní. Telefon navíc při hraní hlídá, jestli
+  přijímač běží, a když ho TV zavře (stará LG to dělá zhruba po 2 minutách), spustí ho znovu
+  nad aktuálním obrazem přes uložené spárování (`LgUdrzovani`).
 
 ## 0.22 (versionCode 35)
 
