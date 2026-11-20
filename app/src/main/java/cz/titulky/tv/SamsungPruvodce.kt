@@ -119,7 +119,7 @@ class SamsungPruvodce(private val activity: Activity, private val vyhledej: () -
             }
             2 -> {
                 akce(t("smUlozitWgt"), hlavni = true) { activity.startActivity(Intent(activity, SamsungExportActivity::class.java)) }
-                odkaz("smInstalatorAndroid", "https://github.com/sunic007/tvinstaller")
+                odkaz("smInstalatorAndroid", "https://github.com/Apps2Samsung/Apps2Samsung")
                 odkaz("smNavodPc", NAVOD + "#3b-inštalácia-z-počítača")
                 odkaz("smCelyNavod", NAVOD)
             }

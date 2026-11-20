@@ -11,6 +11,7 @@ var prijemText = 'Spúšťam príjem titulkov...';
 var prijemChyba = false;
 var nazovTv = '';
 var verziaTv = '';
+var AUTOR_TEXT = 'Aplikáciu pre Samsung pripravil Michael Šubák, sledujte ďalšie tipy pre PS5 na bestranger.eu';
 var sluzbaVidena = 0;
 var sluzbaPokus = 0;
 var dataVidene = 0;
@@ -31,6 +32,24 @@ var elStav = document.getElementById('stav');
 var elNapoveda = document.getElementById('napoveda');
 var elTitulok = document.getElementById('subtitle');
 var elHint = document.getElementById('hint');
+
+// Priehľadnosť pozadia titulkov v percentách: 0 je čierne pozadie ako doteraz, 100 je bez pozadia.
+var priehladnost = 0;
+var priehladnostDo = 0;
+try {
+    var ulozenaPriehladnost = parseInt(localStorage.getItem('playcaption-priehladnost'), 10);
+    if (ulozenaPriehladnost >= 0 && ulozenaPriehladnost <= 100) {
+        priehladnost = ulozenaPriehladnost;
+    }
+} catch (e) {}
+
+function pozadieTitulkov() {
+    var farba = priehladnost === 0 ? '#000000' : 'rgba(0, 0, 0, ' + ((100 - priehladnost) / 100) + ')';
+    elTitulok.style.background = farba;
+    elHint.style.background = farba;
+}
+
+pozadieTitulkov();
 var elDebug = document.getElementById('debug');
 var ui = new window.PlayCaptionReceiverUI(document);
 
@@ -58,6 +77,7 @@ function kresliLadenie(teraz) {
     var p = stavSluzby && stavSluzby.pocty;
     var riadky = [
         'LADENIE (OK = schovať)   beží ' + Math.round((teraz - start) / 1000) + ' s' + (verziaTv ? '   verzia ' + verziaTv : ''),
+        AUTOR_TEXT,
         'Služba: ' + (stavSluzby ? stavSluzby.node + ', ozvala sa pred ' + pred(sluzbaVidena, teraz) : 'zatiaľ sa neozvala'),
         'TV v sieti: ' + (stavSluzby && stavSluzby.adresy && stavSluzby.adresy.length ? stavSluzby.adresy.join(', ') : 'neznáme'),
         'Ohlásenia: ' + (p ? p.ohlasenia : 0) + '   Telefón: ' + (poslednyZdroj || 'žiadny') + ', dáta pred ' + pred(dataVidene || posledneData, teraz),
@@ -73,6 +93,9 @@ function kresliStav() {
     var riadky = [hdmiText, prijemText];
     if (nazovTv && !prijemChyba) {
         riadky.push('V telefóne zvoľ: ' + nazovTv);
+    }
+    if (Date.now() < priehladnostDo) {
+        riadky.push('Priehľadnosť pozadia titulkov: ' + priehladnost + ' %');
     }
     elStav.textContent = riadky.join('\n');
 }
@@ -325,6 +348,12 @@ document.addEventListener('keydown', function (e) {
         stavNatrvalo = ladenie;
         try { localStorage.setItem('playcaption-ladenie', ladenie ? '1' : '0'); } catch (e2) {}
         ukazStav(ladenie ? 0 : 1);
+    } else if (e.keyCode === 38 || e.keyCode === 40) {
+        priehladnost = Math.max(0, Math.min(100, priehladnost + (e.keyCode === 38 ? 10 : -10)));
+        try { localStorage.setItem('playcaption-priehladnost', String(priehladnost)); } catch (e2) {}
+        pozadieTitulkov();
+        priehladnostDo = Date.now() + 2500;
+        ukazStav(2500);
     } else if (e.keyCode === 39 && hdmi.length > 1) {
         idx = (idx + 1) % hdmi.length;
         ukazHdmi();
@@ -335,7 +364,7 @@ document.addEventListener('keydown', function (e) {
 });
 
 window.onload = function () {
-    elNapoveda.textContent = 'Šípky vľavo a vpravo: iný HDMI vstup. OK: ladenie a stav. Späť: koniec.';
+    elNapoveda.textContent = 'Šípky vľavo a vpravo: iný HDMI vstup. Šípky hore a dole: priehľadnosť titulkov. OK: ladenie a stav. Späť: koniec.';
     try { ladenie = localStorage.getItem('playcaption-ladenie') !== '0'; } catch (e) {}
     stavNatrvalo = ladenie;
     zaznam('Apka spustená');

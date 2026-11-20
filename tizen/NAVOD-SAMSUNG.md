@@ -1,5 +1,7 @@
 # PlayCaption na Samsung TV, návod pre používateľa
 
+Aktuálny návod a ďalšie tipy nájdete na [bestranger.eu/gta-vi-v-slovencine](https://bestranger.eu/gta-vi-v-slovencine/).
+
 Táto verzia kreslí preložené titulky nad HDMI obraz na Samsung TV (systém Tizen). Čítanie textu,
 preklad aj čítaciu frontu rieši Android telefón alebo tablet, televízor titulky iba zobrazuje.
 Nie je to aplikácia z obchodu Samsung, inštaluje sa cez Developer Mode. Podpora je experimentálna.
@@ -60,17 +62,25 @@ Oficiálny postup Samsungu: [Developer Mode na TV](https://developer.samsung.com
 
 Vyber jednu cestu. Developer Mode z kroku 2 treba pre obe.
 
-### 3a. Inštalácia z telefónu (najjednoduchšie)
+### 3a. Inštalácia cez Apps2Samsung (odporúčané, z telefónu aj z počítača)
+
+[Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) beží na Androide, Windowse, macOS aj Linuxe.
+Sám vytvorí certifikát s tvojím účtom Samsung a DUID televízora a nainštaluje vlastný súbor `.wgt`.
+Osvedčil sa lepšie ako TV Installer.
 
 1. V sprievodcovi PlayCaption, krok 3, stlač **Uložiť Samsung inštalačný súbor (.wgt)** a ulož ho
    napríklad do Stiahnutých súborov. Súbor je pribalený v aplikácii, nič sa nesťahuje.
-2. Nainštaluj externú aplikáciu [TV Installer pre Android](https://github.com/sunic007/tvinstaller).
-3. V TV Installer sa raz prihlás účtom Samsung. Aplikácia si sama vyžiada certifikát pre tvoj televízor.
-4. Nechaj ju nájsť televízor v sieti, zvoľ inštaláciu vlastného súboru `.wgt` a vyber súbor z bodu 1.
-5. Počkaj na potvrdenie inštalácie a pokračuj krokom 4.
+2. Nainštaluj Apps2Samsung. Android: súbor APK z [vydaní](https://github.com/Apps2Samsung/Apps2Samsung/releases).
+   Windows: `winget install Apps2Samsung.Apps2Samsung`. macOS a Linux: balík z tých istých vydaní.
+3. Ak už PlayCaption v televízore máš z iného inštalátora, odstráň ju v televízore
+   (Apps, ozubené koliesko, PlayCaption Samsung, Odstrániť). Inak môže inštalácia skončiť chybou
+   „Author certificate not match“.
+4. Nechaj Apps2Samsung nájsť televízor v sieti (ak sa nenájde, v ponuke ⋯ zvoľ **Add TV by IP…**).
+5. Na karte **Install** zvoľ **Install a file…**, vyber súbor `.wgt` z bodu 1 a potvrď. Pri prvej
+   inštalácii sa otvorí prihlásenie účtom Samsung, certifikát sa vytvorí sám a uloží.
+6. Počkaj na potvrdenie inštalácie a pokračuj krokom 4.
 
-TV Installer je nezávislý projekt tretej strany, nie súčasť PlayCaption. Postup s naším súborom
-zatiaľ nebol overený na skutočnom televízore, ak narazíš na chybu, použi cestu 3b a daj nám vedieť.
+Apps2Samsung je nezávislý projekt tretej strany, nie súčasť PlayCaption.
 
 ### 3b. Inštalácia z počítača
 
@@ -142,6 +152,8 @@ odoslanie súboru ani prejdenie návodu to nepotvrdzuje.
   nevie, preto sa tlačidlo na prevzatie prihlásenia z televízora pri platforme Samsung neukazuje.
 - Ovládanie na televízore: šípky vľavo a vpravo menia HDMI vstup, OK ukáže alebo schová ladiaci
   panel, Späť aplikáciu ukončí.
+- Priehľadnosť pozadia titulkov zmeníš na ovládači televízora: šípka hore ju zvyšuje, šípka dole
+  znižuje, po 10 %. Hodnota sa uloží v televízore. Predvolene je pozadie čierne ako doteraz.
 - Dva televízory Samsung majú každý vlastný profil a vlastné nastavenie polohy titulkov.
 - Príbehový režim funguje s prijímačom od verzie 1.3.0.
 

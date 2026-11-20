@@ -109,7 +109,10 @@ Dovtedy je hlavná cesta externý inštalátor v telefóne a záloha Tizen Studi
   Kotlin zdroje prešli typovou kontrolou kompilátorom 1.9.24, zostávajúce chyby boli iba
   z nedostupných knižníc tretích strán. Nové JVM testy `SamsungPrijimacTest` a pôvodné
   `TvProfilyTest` prešli (12 testov).
-- Externý TV Installer s naším nepodpísaným WGT.
+- Externý Apps2Samsung s naším nepodpísaným WGT: používatelia potvrdili, že inštalácia prejde na
+  Androide aj v počítači. Sami sme to na vlastnom televízore neskúšali.
+- Externý TV Installer s naším nepodpísaným WGT: u časti používateľov sa nezobrazil obraz z HDMI,
+  po prechode na Apps2Samsung sa to opravilo.
 - Správanie message portu smerom do služby na starších Tizen verziách.
 
 ## Zdroje
@@ -117,6 +120,7 @@ Dovtedy je hlavná cesta externý inštalátor v telefóne a záloha Tizen Studi
 - [Samsung: TV Device, Developer Mode](https://developer.samsung.com/smarttv/develop/getting-started/using-sdk/tv-device.html)
 - [Samsung: Creating Certificates](https://developer.samsung.com/smarttv/develop/getting-started/setting-up-sdk/creating-certificates.html)
 - [Apps2Samsung FAQ](https://github.com/Apps2Samsung/Apps2Samsung/wiki/FAQ): účet Samsung od Tizen 7, otočená adresa Host PC IP, „Author certificate not match“
+- [Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung): inštalácia vlastného WGT z Androidu, Windowsu, macOS a Linuxu, certifikát s účtom Samsung a DUID
 - [sunic007/tvinstaller](https://github.com/sunic007/tvinstaller): inštalácia WGT z Androidu s certifikátom z účtu Samsung
 - [Readiz/tizen-youtube-installer](https://github.com/Readiz/tizen-youtube-installer): opis vlastného SDB v Kotline, `vd_appinstall`, certifikát viazaný na televízor
 - [jellyfin-tizen, chyba 118](https://github.com/jellyfin/jellyfin-tizen/issues/10) a [jellyfin-tizen-builds #39](https://github.com/jeppevinkel/jellyfin-tizen-builds/issues/39): hotové balíčky treba podpísať vlastným certifikátom

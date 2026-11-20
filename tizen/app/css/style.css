@@ -48,6 +48,7 @@ html, body {
     padding: 16px 32px;
     background: #000000;
     border-radius: 8px;
+    text-shadow: 0 0 4px #000000, 0 0 8px #000000;
     font-size: 38px;
     font-weight: bold;
     line-height: 1.35;

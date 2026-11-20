@@ -168,6 +168,22 @@ const cakaj = (ms) => new Promise((r) => setTimeout(r, ms));
     assert.strictEqual(await strana.evaluate(() => document.getElementById("subtitle").hidden), true, "po výpadku má titulok zmiznúť");
     assert.ok(/prerušené/.test(await strana.evaluate(() => document.getElementById("stav").textContent)));
 
+    // Priehľadnosť pozadia titulkov (až na konci, aby nenarušila časovanie skúšky príbehu): šípka hore ju zvyšuje, dole znižuje, hodnota sa ukladá.
+    const klavesa = (kod) => strana.evaluate((k) => document.dispatchEvent(new KeyboardEvent("keydown", { keyCode: k })), kod);
+    const pozadie = () => strana.evaluate(() => document.getElementById("subtitle").style.background);
+    assert.ok(/rgb\(0, 0, 0\)|#000/.test(await pozadie()), "predvolené pozadie má byť čierne");
+    await klavesa(38);
+    await klavesa(38);
+    assert.ok(/rgba\(0, 0, 0, 0\.8\)/.test(await pozadie()), "po dvoch krokoch hore má byť pozadie 80 % krycie");
+    assert.strictEqual(await strana.evaluate(() => localStorage.getItem("playcaption-priehladnost")), "20");
+    await klavesa(40);
+    assert.ok(/rgba\(0, 0, 0, 0\.9\)/.test(await pozadie()), "šípka dole má priehľadnosť znížiť");
+    for (let i = 0; i < 15; i++) await klavesa(38);
+    assert.strictEqual(await strana.evaluate(() => localStorage.getItem("playcaption-priehladnost")), "100");
+    for (let i = 0; i < 15; i++) await klavesa(40);
+    assert.strictEqual(await strana.evaluate(() => localStorage.getItem("playcaption-priehladnost")), "0");
+    assert.ok(/rgb\(0, 0, 0\)|#000/.test(await pozadie()), "po návrate na 0 má byť pozadie opäť čierne");
+
     await prehliadac.close();
     sluzba.onExit();
     telefon.close();
