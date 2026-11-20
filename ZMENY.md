@@ -6,7 +6,14 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- **TV: titulky na černém pozadí jen pod řádky** místo velkého obdélníku. V telefonu jde přepnout
+  na průhledné pozadí s obrysem písma (Úpravy → „Pozadí titulků v TV“).
+- **Vodicí čáry středu** v mini televizi v telefonu. Poloha titulků i rámečky se na střed přichytí,
+  v TV se při posouvání ukáže svislá čára středu.
+- **Příprava na GTA 6:** úkoly mise pod titulky („Go to the garage.“, „Lose the cops.“) se poznají,
+  přeloží a v TV ukážou žlutě na černém pod titulkem; titulek se posune nad ně, aby se nepřekrývaly.
+  Zapíná se v telefonu (Úpravy → „Úkoly mise v TV“), výchozí stav je vypnuto jako dosud.
+  Floridský slang (finna, po-po, homie, trippin'…) se před překladem převede na běžnou angličtinu.
 
 ## 0.22 (versionCode 35)
 

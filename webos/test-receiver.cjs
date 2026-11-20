@@ -66,8 +66,8 @@ ui.tick(609001);
 assert.equal(elements['ocr-frame'].hidden, true);
 ui.caption(packet('PCT1\t1\t6000\tLucia: <script>\\nJason: Ahoj\t\t0.5\t0.9\t0.8\t1\t1\tB:-16711936,-65536'), 610000);
 assert.equal(elements.subtitle.textContent, 'Lucia: <script>\nJason: Ahoj');
-assert.equal(elements.subtitle.children[0].style.color, 'rgba(0,255,0,1)');
-assert.equal(elements.subtitle.children[3].style.color, 'rgba(255,0,0,1)');
+assert.equal(elements.subtitle.children[0].children[0].style.color, 'rgba(0,255,0,1)'); // text je v obalu .text
+assert.equal(elements.subtitle.children[0].children[3].style.color, 'rgba(255,0,0,1)');
 assert.match(elements.subtitle.style.outline, /dashed/);
 ui.tick(618001);
 assert.equal(elements.subtitle.style.outline, '');

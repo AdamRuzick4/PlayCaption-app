@@ -537,7 +537,8 @@ class MainActivity : Activity() {
         }
         co.addView(cara())
         // menu a nápovědy se nepřekládají samy – v mobilní aplikaci si je každý přeloží žlutým rámečkem (Text)
-        nast.napovedy = false
+        // úkoly mise / nápovědy do TV jen když je zapne přepínač v telefonu (výchozí vypnuto)
+        if (!getSharedPreferences("gamelingo", MODE_PRIVATE).getBoolean("ukolyTv", false)) nast.napovedy = false
         run {
             val r = svisle()
             r.addView(text(t("napovedy"), pismo(16f, 20f), Color.WHITE).jedenRadek(), plnaSirka())

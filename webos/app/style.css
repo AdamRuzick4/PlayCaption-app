@@ -112,4 +112,33 @@ body {
   bottom: 2%;
   color: #ffe36e;
   font-size: 28px;
+  /* úkol mise na černém pozadí jen kolem textu, stejně jako titulky */
+  background: #000;
+  padding: 2px 14px;
+  border-radius: 6px;
+}
+
+/* Titulek: černé pozadí jen pod řádky textu (ne celý obdélník); volitelně průhledné s obrysem písma */
+#subtitle { background: transparent; padding: 0 16px; }
+#subtitle .text {
+  background: #000;
+  padding: 2px 14px;
+  border-radius: 6px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+#subtitle.pruhledne .text { background: transparent; }
+#subtitle.pruhledne {
+  text-shadow: 0 0 3px #000, 0 0 6px #000, 2px 2px 2px #000, -2px -2px 2px #000, 2px -2px 2px #000, -2px 2px 2px #000;
+}
+
+/* Svislá vodicí čára středu, jen když se v telefonu posouvá poloha titulků */
+#vodici {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  border-left: 2px dashed rgba(120, 232, 155, 0.85);
+  pointer-events: none;
 }

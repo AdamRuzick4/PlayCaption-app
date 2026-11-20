@@ -113,11 +113,16 @@
         };
 
         function paintCaption(text, colors) {
-            subtitle.textContent = text;
+            // text v obalu <span class="text">, aby černé pozadí obepínalo jen řádky
+            var obal = document.createElement("span");
+            obal.className = "text";
+            subtitle.textContent = "";
+            subtitle.appendChild(obal);
+            obal.textContent = text;
             if (colors.some(function (color) { return color !== 0; })) {
-                subtitle.textContent = "";
+                obal.textContent = "";
                 text.split("\n").forEach(function (line, index) {
-                    if (index) subtitle.appendChild(document.createTextNode("\n"));
+                    if (index) obal.appendChild(document.createTextNode("\n"));
                     var colon = line.indexOf(":");
                     var color = colors[index] || 0;
                     if (color && colon >= 1 && colon <= 25) {
@@ -125,9 +130,9 @@
                         name.textContent = line.slice(0, colon + 1);
                         var argb = color >>> 0;
                         name.style.color = "rgba(" + [(argb >>> 16) & 255, (argb >>> 8) & 255, argb & 255, (argb >>> 24) / 255].join(",") + ")";
-                        subtitle.appendChild(name);
-                        subtitle.appendChild(document.createTextNode(line.slice(colon + 1)));
-                    } else subtitle.appendChild(document.createTextNode(line));
+                        obal.appendChild(name);
+                        obal.appendChild(document.createTextNode(line.slice(colon + 1)));
+                    } else obal.appendChild(document.createTextNode(line));
                 });
             }
         }
@@ -180,6 +185,7 @@
             captionUntil = now + packet.duration;
             if (!same) { captionOffset = 0; nextCaption(now); }
             subtitle.style.outline = packet.editing ? "4px dashed #78e89b" : "";
+            subtitle.className = packet.transparent ? "pruhledne" : "";
             greenUntil = now + 8000;
         };
 
