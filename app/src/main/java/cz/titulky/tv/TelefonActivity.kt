@@ -393,6 +393,19 @@ class TelefonActivity : Activity() {
             visibility = if (OblastTitulku.rucne) View.VISIBLE else View.GONE
         }
         obrazovka.addView(modry, FrameLayout.LayoutParams(10, 10))
+        // vodicí čáry středu; rozsvítí se zeleně, když se rámeček na střed přichytí
+        val cara = Color.parseColor("#55FFFFFF")
+        val caraSvit = Color.parseColor("#3CFF6E")
+        val svisla = View(this).apply { setBackgroundColor(cara) }
+        val vodorovna = View(this).apply { setBackgroundColor(cara) }
+        obrazovka.addView(svisla, 0, FrameLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER_HORIZONTAL))
+        obrazovka.addView(vodorovna, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1), Gravity.CENTER_VERTICAL))
+        fun svit(vodorovneNaStred: Boolean, svisleNaStred: Boolean) {
+            svisla.setBackgroundColor(if (vodorovneNaStred) caraSvit else cara)
+            svisla.layoutParams = svisla.layoutParams.apply { width = dp(if (vodorovneNaStred) 2 else 1) }
+            vodorovna.setBackgroundColor(if (svisleNaStred) caraSvit else cara)
+            vodorovna.layoutParams = vodorovna.layoutParams.apply { height = dp(if (svisleNaStred) 2 else 1) }
+        }
         fun prekresli() {
             val w = obrazovka.width.toFloat()
             val h = obrazovka.height.toFloat()
@@ -435,8 +448,10 @@ class TelefonActivity : Activity() {
             val w = v.width.toFloat(); val h = v.height.toFloat()
             if (e.action == android.view.MotionEvent.ACTION_DOWN) ui.removeCallbacks(konecUprav)
             // prst puštěn → rámečky na televizi za chvilku schovat (při tažení je vidět, kam to jde)
-            if (e.action == android.view.MotionEvent.ACTION_UP || e.action == android.view.MotionEvent.ACTION_CANCEL)
+            if (e.action == android.view.MotionEvent.ACTION_UP || e.action == android.view.MotionEvent.ACTION_CANCEL) {
                 ui.postDelayed(konecUprav, 1000)
+                v.postDelayed({ svit(false, false) }, 1200)
+            }
             if (w > 0 && h > 0 && e.action == android.view.MotionEvent.ACTION_DOWN) {
                 val o = Volby.oblast
                 val m = OblastTitulku.oblast
@@ -457,7 +472,9 @@ class TelefonActivity : Activity() {
                 val m = OblastTitulku.oblast.copyOf()
                 val mw = m[2] - m[0]; val mh = m[3] - m[1]
                 m[0] = (e.x / w - chytX).coerceIn(0f, 1f - mw); m[1] = (e.y / h - chytY).coerceIn(0f, 1f - mh)
+                m[0] = Vodici.prichyt(m[0] + mw / 2) - mw / 2; m[1] = Vodici.prichyt(m[1] + mh / 2) - mh / 2
                 m[2] = m[0] + mw; m[3] = m[1] + mh
+                svit(Vodici.naStredu(m[0] + mw / 2), Vodici.naStredu(m[1] + mh / 2))
                 OblastTitulku.oblast = m
                 prekresli()
                 val ted = System.currentTimeMillis()
@@ -469,7 +486,9 @@ class TelefonActivity : Activity() {
                 val o = Volby.oblast.copyOf()
                 val ow = o[2] - o[0]; val oh = o[3] - o[1]
                 o[0] = (e.x / w - chytX).coerceIn(0f, 1f - ow); o[1] = (e.y / h - chytY).coerceIn(0f, 1f - oh)
+                o[0] = Vodici.prichyt(o[0] + ow / 2) - ow / 2; o[1] = Vodici.prichyt(o[1] + oh / 2) - oh / 2
                 o[2] = o[0] + ow; o[3] = o[1] + oh
+                svit(Vodici.naStredu(o[0] + ow / 2), Vodici.naStredu(o[1] + oh / 2))
                 Volby.oblast = o
                 prekresli()
                 val ted = System.currentTimeMillis()
@@ -478,7 +497,8 @@ class TelefonActivity : Activity() {
                     ulozAPosliVolby()
                 }
             } else if (w > 0 && h > 0) {
-                rozvrh[0] = (e.x / w).coerceIn(0f, 1f)
+                rozvrh[0] = Vodici.prichyt((e.x / w).coerceIn(0f, 1f))
+                svit(Vodici.naStredu(rozvrh[0]), false)
                 // prst je uprostřed boxu → spodní hrana o půl boxu níž
                 val pulBoxu = (0.06f * rozvrh[3]).coerceIn(0.03f, 0.17f)
                 rozvrh[1] = (e.y / h + pulBoxu).coerceIn(0.1f, 1f)
@@ -1097,4 +1117,11 @@ class TelefonActivity : Activity() {
             ui.postDelayed(this, 100)
         }
     }
+}
+
+/** Přichycení rámečků na střed obrazovky (do 2,5 % od středu). */
+internal object Vodici {
+    const val TOLERANCE = 0.025f
+    fun prichyt(stred: Float): Float = if (kotlin.math.abs(stred - 0.5f) < TOLERANCE) 0.5f else stred
+    fun naStredu(stred: Float) = kotlin.math.abs(stred - 0.5f) < 0.0005f
 }

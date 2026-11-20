@@ -4,6 +4,7 @@
     var status = document.getElementById("status");
     var subtitle = document.getElementById("subtitle");
     var hint = document.getElementById("hint");
+    var vodici = document.getElementById("vodici"); // vodicí čára středu při úpravě polohy
     var receiverUI = window.PlayCaptionReceiverUI ? new window.PlayCaptionReceiverUI(document) : null;
     var inputPanel = document.getElementById("inputs");
     var inputBridge = null;
@@ -359,6 +360,7 @@
             if (now - lastActivity >= 45000) keepOverlayOpen();
             if (now >= subtitleUntil) subtitle.hidden = true;
             if (now >= hintUntil) hint.hidden = true;
+            if (vodici) vodici.hidden = !subtitle.style.outline;
             if (testSubtitle && now >= testUntil) testSubtitle.hidden = true;
             if (output) output.hidden = hiddenByUser || now < testUntil;
             if (lastSeen && now - lastSeen > 5000) {

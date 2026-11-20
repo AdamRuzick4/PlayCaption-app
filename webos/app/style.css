@@ -127,3 +127,14 @@ body {
 #subtitle.pruhledne {
   text-shadow: 0 0 3px #000, 0 0 6px #000, 2px 2px 2px #000, -2px -2px 2px #000, 2px -2px 2px #000, -2px 2px 2px #000;
 }
+
+/* Svislá vodicí čára středu, jen když se v telefonu posouvá poloha titulků */
+#vodici {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  border-left: 2px dashed rgba(120, 232, 155, 0.85);
+  pointer-events: none;
+}
