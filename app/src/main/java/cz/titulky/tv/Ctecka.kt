@@ -145,6 +145,14 @@ class Ctecka {
                     // "G neur iterms to pick therm up…")
                     val stredY = (r.top + r.bottom) / 2
                     if (pasmaNapovedy.any { stredY in it } && r.text.none { it in ".!?…" }) return@takeIf true
+                    // úkol mise v GTA – rozkaz, často s tečkou na konci
+                    // ("Go to the garage.", "Lose the cops.", "Follow Lucia."), bez čárky, uvozovek a stažení
+                    if (UKOL_GTA.containsMatchIn(r.text) && VyberTitulku.pocetSlov(r.text) in 2..10 &&
+                        r.text.trimEnd().dropLastWhile { it == '.' }.none { it in ".,!?\"…:;" } &&
+                        !STAZENINA.containsMatchIn(r.text) && !JMENO.containsMatchIn(r.text)) {
+                        val nadUkolem = hotoveRadky.getOrNull(hotoveRadky.size - 2) ?: return@takeIf true
+                        if (r.top - nadUkolem.bottom > (r.bottom - r.top) * 0.6) return@takeIf true
+                    }
                     // úkol mise: krátký, bez jakékoli interpunkce ("Lead the horse to the hitching post");
                     // dialog má skoro vždy čárku, tečku nebo apostrof ("We're fixing to rob some train, …")
                     if (konci(r.text) || VyberTitulku.pocetSlov(r.text) < 2 || VyberTitulku.pocetSlov(r.text) > 9 ||
@@ -332,6 +340,11 @@ class Ctecka {
             "my", "your", "our", "their", "his", "her", "this", "so", "as", "from", "about", "just"
         )
         /** Stažený tvar ("we're", "don't", "'em") – typický pro dialog. "O'Driscoll" se nepočítá. */
+        /** Začátek úkolu mise v GTA (rozkazovací způsob). */
+        val UKOL_GTA = Regex("^\\s*(Go|Get|Lose|Follow|Drive|Take|Find|Kill|Escape|Return|Meet|Head|Enter|Pick up|Deliver|Wait|" +
+            "Steal|Chase|Collect|Park|Reach|Leave|Defend|Protect|Destroy|Eliminate|Search|Hide|Climb|Fly|Land|Bring|Shoot|" +
+            "Evade|Stay|Catch|Stop|Help|Talk to|Call|Answer|Buy|Board|Exit|Investigate|Locate|Rob|Grab|Break|Open|Survive|" +
+            "Ride|Pursue|Tail|Dispose|Retrieve|Hack|Plant|Signal|Swim|Run|Walk|Enter|Take out|Kill|Lead|Pull over|Ditch)\\b")
         val STAZENINA = Regex("[a-z]['’][a-z]|(?<![A-Za-z])['’](em|cause|til|round)\\b")
         /** Běžná anglická slova – u krátkých replik, kde rozpoznání jazyka nic neřekne. */
         private val ANGLICKA = setOf(

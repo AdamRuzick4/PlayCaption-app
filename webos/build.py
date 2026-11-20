@@ -83,9 +83,9 @@ def main():
     service = json.loads((HERE / "service/package.json").read_text(encoding="utf8"))
     assert app["version"] == service["version"], "Nesouhlasí verze UI a služby"
     assert service["name"] == app["id"] + ".receiver", "Nesouhlasí ID služby"
-    for test in ["test.cjs", "test-udp.cjs", "test-input.cjs", "test-receiver.cjs", "test-controls.cjs", "test-story.cjs"]:
+    for test in ["test.cjs", "test-udp.cjs", "test-input.cjs", "test-receiver.cjs", "test-controls.cjs", "test-story.cjs", "test-rozlozeni.cjs"]:
         subprocess.run(["node", test], cwd=HERE, check=True)
-    for source in ["app/app.js", "app/receiver-ui.js", "service/protocol.js", "service/service.js", "service/switch-input.js"]:
+    for source in ["app/app.js", "app/receiver-ui.js", "app/rozlozeni.js", "service/protocol.js", "service/service.js", "service/switch-input.js"]:
         subprocess.run(["node", "--check", source], cwd=HERE, check=True)
     (HERE / "dist").mkdir(exist_ok=True)
     # Pevný příkaz bez interpolace vstupu; shell podporuje také npx.cmd na Windows.

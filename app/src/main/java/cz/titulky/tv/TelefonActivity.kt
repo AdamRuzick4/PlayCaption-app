@@ -68,6 +68,7 @@ class TelefonActivity : Activity() {
         Volby.nacti(this)
         OblastTitulku.nacti(this)
         Propojeni.Vysilac.pruhledne = prefs.getBoolean("tvPruhledne", false)
+        nast.napovedy = prefs.getBoolean("ukolyTv", false)
         // televize musí znát polohu rámečku voleb (český seznam ukazuje vedle něj)
         Propojeni.Vysilac.trvaleOblast = Volby.zapnuto && Volby.ukazatNaTv
         Propojeni.Vysilac.upravujiOblast(Volby.oblast, ukazat = false)
@@ -346,6 +347,22 @@ class TelefonActivity : Activity() {
         obal.addView(LgDevModeView(this) {
             TvProfily.aktivniId?.let { TvProfily(this).najdi(it) }
         })
+        // úkol mise pod titulky (např. GTA: „Go to the garage.“) přeložit a ukázat v TV žlutě pod titulkem
+        obal.addView(TextView(this).apply {
+            fun popis() { text = t(if (prefs.getBoolean("ukolyTv", false)) "ukolyTvZap" else "ukolyTvVyp") }
+            popis()
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = zaobleni(Color.parseColor("#333338"))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setOnClickListener {
+                val zap = !prefs.getBoolean("ukolyTv", false)
+                prefs.edit().putBoolean("ukolyTv", zap).apply()
+                nast.napovedy = zap
+                popis()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         // pozadí titulků v televizi: černé jen pod řádky (výchozí) nebo průhledné s obrysem písma
         obal.addView(TextView(this).apply {
             fun popis() { text = t(if (Propojeni.Vysilac.pruhledne) "tvPozadiPruhledne" else "tvPozadiCerne") }

@@ -112,6 +112,10 @@ body {
   bottom: 2%;
   color: #ffe36e;
   font-size: 28px;
+  /* úkol mise na černém pozadí jen kolem textu, stejně jako titulky */
+  background: #000;
+  padding: 2px 14px;
+  border-radius: 6px;
 }
 
 /* Titulek: černé pozadí jen pod řádky textu (ne celý obdélník); volitelně průhledné s obrysem písma */

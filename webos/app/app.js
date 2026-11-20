@@ -314,7 +314,8 @@
         var width = layout ? layout[2] : 0.8;
         var left = layout ? Math.max(width / 2, Math.min(1 - width / 2, layout[0])) : 0.5;
         subtitle.style.left = (left * 100) + "%";
-        subtitle.style.bottom = ((1 - (layout ? layout[1] : 0.91)) * 100) + "%";
+        subtitle.zakladBottom = ((1 - (layout ? layout[1] : 0.91)) * 100) + "%";
+        subtitle.style.bottom = subtitle.zakladBottom;
         subtitle.style.width = (width * 100) + "%";
         var viewport = document.documentElement ? document.documentElement.clientHeight : 1080;
         subtitle.style.fontSize = Math.min(38 * (layout ? layout[3] : 1), (viewport * 0.18 - 32) / 2.7) + "px";
@@ -329,6 +330,7 @@
             hint.hidden = !packet.hint;
             hintUntil = now + 20000;
         }
+        if (window.PlayCaptionRozlozeni) window.PlayCaptionRozlozeni(subtitle, hint);
     }
 
     function start() {
@@ -360,6 +362,7 @@
             if (now - lastActivity >= 45000) keepOverlayOpen();
             if (now >= subtitleUntil) subtitle.hidden = true;
             if (now >= hintUntil) hint.hidden = true;
+            if (window.PlayCaptionRozlozeni) window.PlayCaptionRozlozeni(subtitle, hint);
             if (vodici) vodici.hidden = !subtitle.style.outline;
             if (testSubtitle && now >= testUntil) testSubtitle.hidden = true;
             if (output) output.hidden = hiddenByUser || now < testUntil;

@@ -288,7 +288,16 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
             "ol'" to "old",
             "fixing to" to "going to",
             "fixin' to" to "going to",
-            "fora" to "for a"
+            "fora" to "for a",
+            // slang z Floridy (GTA 6) → běžná angličtina, ať překladač přeloží smysl, ne doslova
+            "finna" to "going to", "fixna" to "going to", "tryna" to "trying to", "boutta" to "about to",
+            "'bout" to "about", "gon'" to "going to", "imma" to "I'm going to",
+            "aight" to "alright", "gotcha" to "got you",
+            "po-po" to "police", "popo" to "police",
+            "deadass" to "seriously", "lowkey" to "kind of", "hella" to "really", "bruh" to "bro",
+            "dawg" to "dude", "homie" to "buddy", "shawty" to "girl",
+            "trippin'" to "freaking out", "trippin" to "freaking out"
+            // záměrně ne: "on God", "no cap", "ima", "opps", "crash out", "whatcha" – kazí běžné věty
         ).map { (z, na) ->
             Regex("(?i)(?<![\\p{L}'])" + Regex.escape(z) + "(?![\\p{L}])") to na
         }
