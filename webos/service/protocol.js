@@ -1,5 +1,16 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 "use strict";
+if (!Array.prototype.find) {
+    // starý webOS (Node 0.12) Array.prototype.find nezná
+    Object.defineProperty(Array.prototype, "find", { configurable: true, writable: true, value: function (fn, t) {
+        for (var i = 0; i < this.length; i++) if (fn.call(t, this[i], i, this)) return this[i];
+        return undefined;
+    } });
+}
+if (typeof Buffer.from !== "function" || Buffer.from === Uint8Array.from) {
+    // starý webOS (LG 2016, Node 0.12) Buffer.from nezná
+    Buffer.from = function (value, encoding) { return new Buffer(value, encoding); };
+}
 
 function unescape(text) {
     return text.replace(/\\(.)/g, function (_, ch) { return ch === "n" ? "\n" : ch; });

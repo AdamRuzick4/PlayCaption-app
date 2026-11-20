@@ -1,5 +1,19 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 "use strict";
+if (typeof Buffer.from !== "function" || Buffer.from === Uint8Array.from) {
+    // starý webOS (LG 2016, Node 0.12) Buffer.from nezná
+    Buffer.from = function (value, encoding) { return new Buffer(value, encoding); };
+}
+// starý webOS (Node 0.12) zná jen send(buf, offset, length, port, adresa, cb)
+(function () {
+    var dgramOld = require("dgram");
+    if (!dgramOld.Socket || !dgramOld.Socket.prototype) return; // v testech je dgram podvržený
+    var puvodni = dgramOld.Socket.prototype.send;
+    dgramOld.Socket.prototype.send = function (buf, a, b, c) {
+        if (typeof b === "string") return puvodni.call(this, buf, 0, buf.length, a, b, c);
+        return puvodni.apply(this, arguments);
+    };
+})();
 var Service = require("webos-service");
 var dgram = require("dgram");
 var os = require("os");

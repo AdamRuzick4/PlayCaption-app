@@ -120,6 +120,16 @@ internal class LgInstalator(
         }
     }.isSuccess
 
+    /**
+     * Znovu spustí přijímač nad aktuálním obrazem (bez výběru HDMI), když ho TV zavřela.
+     * Používá jen uložené spárování (bez passphrase).
+     */
+    fun obnovPrekryv(adresa: String): Boolean = pripojene(adresa, CharArray(0), {}, {}) { _, _ ->
+        val payload = JSONObject().put("id", LG_APP_ID).put("params", JSONObject().put("resumeOverlay", true))
+        luna("luna://com.webos.applicationManager/launch", payload, false) { it.optBoolean("returnValue", false) }
+        true
+    }
+
     /** Pouze čtení relace; neinstaluje přijímač a nemění Developer Mode. */
     fun nactiRelaci(adresa: String, passphrase: CharArray): String = pripojene(adresa, passphrase, {}, {}) { ssh, krok ->
         krok(LgFaze.OVERENI)
