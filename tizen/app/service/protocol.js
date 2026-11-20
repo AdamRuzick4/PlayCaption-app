@@ -79,6 +79,7 @@ exports.parse = function (buffer) {
         duration: Math.min(60000, duration > 0 ? duration : 6000),
         layout: layout,
         editing: Boolean(layout && fields[9] === "1"),
+        transparent: fields.slice(5).indexOf("P:1") !== -1,
         colors: (fields.find(function (value) { return value.indexOf("B:") === 0; }) || "B:").slice(2)
             .split(",").slice(0, 64).map(function (value) {
                 var number = /^-?\d{1,10}$/.test(value) ? Number(value) : 0;

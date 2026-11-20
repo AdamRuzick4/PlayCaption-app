@@ -501,8 +501,16 @@ object Propojeni {
             // barvy jmen až úplně na konec se značkou "B:" – starší televize je přeskočí
             val b = barvy
             val sBarvami = if (b != null && b.any { it != 0 }) "\tB:" + b.joinToString(",") else ""
-            "$TITULEK\t$cislo\t$doba\t${escapuj(text)}\t${escapuj(napoveda)}$konec$sBarvami".toByteArray(Charsets.UTF_8)
+            // průhledné pozadí v TV na přání (P:1 na konci, starší přijímače ho přeskočí)
+            val pozadi = if (pruhledne) "\tP:1" else ""
+            "$TITULEK\t$cislo\t$doba\t${escapuj(text)}\t${escapuj(napoveda)}$konec$sBarvami$pozadi".toByteArray(Charsets.UTF_8)
         }
+
+        /** Průhledné pozadí titulků v televizi (výchozí černé pod řádky). */
+        @Volatile var pruhledne = false
+
+        /** Znovu poslat aktuální titulek (po změně vzhledu). */
+        fun obnovVzhled() = posliTed()
 
         private fun posliTed() { if (!pribehRidi) posliData { zprava() } }
 
