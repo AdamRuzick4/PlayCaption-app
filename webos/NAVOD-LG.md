@@ -2,7 +2,7 @@
 
 Tato verze zobrazuje přeložené titulky přes HDMI obraz na LG webOS. Překlad obstarává
 Android telefon nebo tablet. Nejde o aplikaci z LG Store; instalace používá Developer Mode.
-Je to experimentální podpora, zatím ověřená na LG C5.
+Je to experimentální podpora, zatím ověřená na LG C5 a na starší LG 43UH6107 (2016, webOS 3.4).
 
 ## Co potřebuješ
 
@@ -225,7 +225,10 @@ Passphrase ani soukromé klíče. Pokud posíláš fotku, stačí samotný text 
 
 Umí titulky, nápovědu, polohu/velikost, dialogové volby, delší texty, náhledy
 oblastí a barvy jmen. Podrobnosti a testy uvádí [matice funkcí](SHODA-ANDROID.md).
-Ověřená kombinace je LG C5 + Redmi Pad Pro + PS5. Stejná verze webOS nezaručuje
+Ověřená kombinace je LG C5 + Redmi Pad Pro + PS5. Druhá ověřená kombinace je starší
+LG 43UH6107 (webOS 3.4, firmware 05.70.50) + Xiaomi Pad 8 + PS5: tato TV zavírá překryv
+po zhruba 2 minutách bez ovladače, proto ho telefon při hraní sám znovu spouští (`LgUdrzovani`).
+Stejná verze webOS nezaručuje
 kompatibilitu všech modelů; překryv i jeho udržování používají neoficiální rozhraní LG.
 Xbox ani jiné LG modely zatím v této sestavě nebyly otestované.
 

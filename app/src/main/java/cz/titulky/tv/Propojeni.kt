@@ -299,6 +299,9 @@ object Propojeni {
         }.apply { isDaemon = true }.start()
     }
 
+    internal fun primaOdpoved(casti: List<String>, nonce: String, ip: String, idTv: String, ipTv: String) =
+        ip == ipTv && casti.size == 5 && casti[0] == OHLASENI && casti[1] == idTv && casti[4] == nonce
+
     /** Broadcast zůstává pro Android TV i starší LG; známé LG navíc ověříme přímo. */
     internal fun hledejVSiti(doba: Long, ulozene: List<Televize>): List<Televize> {
         val nalez = LinkedHashMap<String, Televize>()
@@ -335,7 +338,7 @@ object Propojeni {
                             // Přímá odpověď: 5. pole je nonce tohoto hledání a musí sedět uložené ID i IP.
                             // Broadcast: 5. pole je volitelná verze přijímače (Samsung od 1.3.0), nonce v něm není.
                             val prima = prijem === prime
-                            if (prima && (casti.size != 5 || casti[4] != nonce || ulozene.none { it.id == casti[1] && it.ip == ip })) continue
+                            if (prima && ulozene.none { primaOdpoved(casti, nonce, ip, it.id, it.ip) }) continue
                             nalez[casti[1]] = Televize(casti[1], casti[2], ip,
                                 when (casti.getOrNull(3)?.trim()) { "1" -> true; "0" -> false; else -> null },
                                 if (prima) null else SamsungPrijimac.verze(casti.getOrNull(4)))

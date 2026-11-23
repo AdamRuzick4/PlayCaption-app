@@ -122,7 +122,7 @@ const dgram = { createSocket() {
     const s = new EventEmitter();
     s.bind = (port, address, fn) => { assert.equal(port, 41989); s.bound = fn; };
     s.setBroadcast = value => { assert.equal(value, true); };
-    s.send = (data, port, address, callback) => { sent.push({ data: data.toString(), port, address }); callback(null); };
+    s.send = (data, offset, length, port, address, callback) => { assert.equal(offset, 0); assert.equal(length, data.length); sent.push({ data: data.toString(), port, address }); callback(null); };
     s.close = () => { s.closed = true; };
     sockets.push(s); return s;
 } };

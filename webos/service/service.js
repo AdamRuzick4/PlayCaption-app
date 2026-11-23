@@ -1,5 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 "use strict";
+if (typeof Buffer.from !== "function" || Buffer.from === Uint8Array.from) {
+    // starý webOS (LG 2016, Node 0.12) Buffer.from nezná
+    Buffer.from = function (value, encoding) { return new Buffer(value, encoding); };
+}
+// Šest argumentů podporuje i Node 0.12 ve starších LG.
+function sendBuffer(socket, buffer, port, address, callback) {
+    socket.send(buffer, 0, buffer.length, port, address, callback);
+}
 var Service = require("webos-service");
 var dgram = require("dgram");
 var os = require("os");
@@ -64,7 +72,7 @@ function start() {
         announcement = Buffer.from("PLAYCAPTION_TV\tlg-" + id + "\t" + receiverName + "\t0", "utf8");
         if (changed) notify({ returnValue:true, ready:ready, networkReady:networkReady, name:receiverName });
         addresses.forEach(function (address) {
-            receiver.send(announcement, 41988, address, function (error) {
+            sendBuffer(receiver, announcement, 41988, address, function (error) {
                 if (error) console.error("PlayCaption discovery:", error.code);
             });
         });
@@ -78,7 +86,7 @@ function start() {
         if (socket !== receiver) return;
         var query = buffer.length === 49 && /^PLAYCAPTION_FIND\t([a-f0-9]{32})$/.exec(buffer.toString("utf8"));
         if (query && ready && announcement) {
-            receiver.send(Buffer.concat([announcement, Buffer.from("\t" + query[1])]), remote.port, remote.address, function () {});
+            sendBuffer(receiver, Buffer.concat([announcement, Buffer.from("\t" + query[1])]), remote.port, remote.address, function () {});
             return;
         }
         var packet = parse(buffer);
@@ -93,7 +101,7 @@ function start() {
             return;
         }
         if (packet.kind === "storyQuery") {
-            receiver.send(Buffer.from("PCA1\t" + packet.id + "\tready"), remote.port, remote.address, function () {});
+            sendBuffer(receiver, Buffer.from("PCA1\t" + packet.id + "\tready"), remote.port, remote.address, function () {});
             return;
         }
         if (sender !== remote.address) storyPeer = null;
@@ -130,7 +138,7 @@ service.register("storyAck", function (message) {
     if (!socket || !storyPeer || p.id !== storyPeer.id || ["reading", "done"].indexOf(p.state) < 0) {
         message.respond({returnValue:false}); return;
     }
-    socket.send(Buffer.from("PCA1\t" + p.id + "\t" + p.state), storyPeer.port, storyPeer.address, function (error) {
+    sendBuffer(socket, Buffer.from("PCA1\t" + p.id + "\t" + p.state), storyPeer.port, storyPeer.address, function (error) {
         message.respond({returnValue:!error});
     });
 });

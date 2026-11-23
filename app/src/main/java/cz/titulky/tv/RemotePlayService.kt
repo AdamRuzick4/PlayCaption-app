@@ -234,6 +234,7 @@ class RemotePlayService : Service() {
                 if (!aktivni) obrazStav.zacni()
                 automat = true
                 aktivni = true
+                if (telefon) LgUdrzovani.zapni(this)
                 if (posluchac == null) posluchac = Predavani.Posluchac(this) { ui.post { prevzaloJine() } }
                 // spojení "visí" (televize/PS5 spaly, obraz nechodí) → zahodit a připojit znovu
                 if (pripojeno() && System.currentTimeMillis() - posledniSnimekKdy > 8000) {
@@ -2362,6 +2363,7 @@ class RemotePlayService : Service() {
 
     override fun onDestroy() {
         zanikla = true
+        LgUdrzovani.vypni()
         ui.removeCallbacks(pribehHlidac)
         zrusPribeh()
         relaceCteni.incrementAndGet()
