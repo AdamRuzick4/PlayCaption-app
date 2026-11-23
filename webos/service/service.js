@@ -27,6 +27,7 @@ var keepActivity = null;      // aktivita držící službu naživu (null = žá
 var lastToastId = null;
 var lastToastText = "";
 var lastToastAt = 0;
+var toastStory = null;
 
 function showToast(text) {
     text = String(text == null ? "" : text).replace(/\s+/g, " ").trim().slice(0, 200);
@@ -35,17 +36,88 @@ function showToast(text) {
     if (!text || (text === lastToastText && now - lastToastAt < 4000)) return;
     lastToastText = text;
     lastToastAt = now;
-    // předchozí toast zkus zavřít, ať se nehromadí (když to TV neumí, nevadí)
+    requestToast(text);
+}
+
+function closeToast() {
     if (lastToastId) {
         try { service.call("luna://com.webos.notification/closeToast", { toastId: lastToastId }, function () {}); } catch (error) {}
         lastToastId = null;
     }
+}
+
+function requestToast(text, accepted) {
+    closeToast();
     try {
         service.call("luna://com.webos.notification/createToast", { message: text }, function (reply) {
-            var r = reply && reply.payload;
-            if (r && r.toastId) lastToastId = r.toastId;
+            var result = reply && reply.payload;
+            var ok = !!result && result.returnValue === true;
+            if (accepted && !accepted(ok)) return;
+            if (ok && result.toastId) lastToastId = result.toastId;
         });
-    } catch (error) { /* notifikace nejsou dostupné */ }
+    } catch (error) { if (accepted) accepted(false); }
+}
+
+// Systémový toast pojme omezený text. Posílej krátké stránky bez dělení znaků v páru.
+function storyPages(text) {
+    return text.match(/\S+/g)
+        .reduce(function (pages, word) {
+            var i = pages.length - 1;
+            if (i >= 0 && pages[i].length + 1 + word.length <= 64) pages[i] += " " + word;
+            else while (word.length) {
+                var end = Math.min(word.length, 64);
+                if (end < word.length && /[\uD800-\uDBFF]/.test(word.charAt(end - 1))) end--;
+                pages.push(word.slice(0, end)); word = word.slice(end);
+            }
+            return pages;
+        }, []);
+}
+
+function toastStoryState(packet, now) {
+    var page = toastStory;
+    if (!page || page.id !== packet.id) {
+        if (page) {
+            var old = page.id.split("."), next = packet.id.split(".");
+            if (old[0] === next[0]) {
+                for (var n = 1; n < 4; n++) {
+                    if (+next[n] < +old[n]) return null;
+                    if (+next[n] > +old[n]) break;
+                }
+            }
+            closeToast();
+        }
+        page = toastStory = {id:packet.id, pages:packet.text.trim() ? storyPages(packet.text) : [],
+            index:0, until:0, retryAt:0, pending:null, lastSeen:now};
+    }
+    if (page.index === page.pages.length) return "done";
+    if (packet.paused || now - page.lastSeen > 5000) {
+        if (page.until || page.pending) closeToast();
+        page.until = 0; page.pending = null; page.retryAt = 0;
+    }
+    page.lastSeen = now;
+    if (packet.paused) return "reading";
+    if (page.until && now >= page.until) {
+        page.index++; page.until = 0; page.retryAt = 0;
+        if (page.index === page.pages.length) return "done";
+    }
+    if (!page.until && now >= page.retryAt) {
+        var text = page.pages[page.index], attempt = {};
+        page.pending = attempt;
+        page.retryAt = now + 5000; // Luna může přijít o odpověď; opakování posílá telefon.
+        requestToast(text, function (ok) {
+            if (toastStory !== page || page.pending !== attempt) return false;
+            page.pending = null;
+            if (ok) {
+                var letters = text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, "_").length;
+                var duration = packet.adjustableTiming ?
+                    Math.ceil(Math.max(1500, Math.ceil(letters * 1000 / 18)) * packet.durationPercent * 80 / 10000) :
+                    Math.max(1800, Math.ceil(letters * 1000 / 14));
+                page.until = Date.now() + duration;
+            } else page.retryAt = Date.now() + 1000;
+            return ok;
+        });
+    }
+    return page.until ? "reading" : null;
 }
 
 // Trvalá aktivita udrží službu (a UDP socket) naživu i bez otevřené UI appky.
@@ -76,6 +148,7 @@ function stop() {
     networkReady = false;
     announcement = null;
     storyPeer = null;
+    toastStory = null;
     sender = null;
     senderSeen = 0;
     rejectedAt = 0;
@@ -142,15 +215,27 @@ function start() {
             receiver.send(Buffer.from("PCA1\t" + packet.id + "\tready"), remote.port, remote.address, function () {});
             return;
         }
-        if (sender !== remote.address) storyPeer = null;
+        if (sender !== remote.address) { storyPeer = null; toastStory = null; }
         sender = remote.address;
         senderSeen = now;
         if (packet.kind === "story") storyPeer = {id:packet.id,address:remote.address,port:remote.port};
         notify({ returnValue: true, packet: packet, source: remote.address });
         // Hybrid: když žije web-overlay (má odběratele), ukáže titulek on (hezký pruh).
         // Když overlay nežije (např. po přepnutí na HDMI na webOS Lite), nastoupí systémový toast.
-        if (toastMode && Object.keys(subscriptions).length === 0 &&
-            (packet.kind === "subtitle" || packet.kind === "story") && packet.text) showToast(packet.text);
+        if (toastMode && Object.keys(subscriptions).length === 0) {
+            if (packet.kind === "story") {
+                var state = toastStoryState(packet, now);
+                if (state) {
+                    var ack = Buffer.from("PCA1\t" + packet.id + "\t" + state);
+                    receiver.send(ack, 0, ack.length, remote.port, remote.address, function () {});
+                }
+            } else if (packet.kind === "subtitle" && packet.text) {
+                if (toastStory && toastStory.index < toastStory.pages.length) {
+                    toastStory.until = 0; toastStory.pending = null; toastStory.retryAt = 0;
+                }
+                showToast(packet.text);
+            }
+        }
     });
     receiver.bind(41989, "0.0.0.0", function () {
         if (socket !== receiver) return;
@@ -167,6 +252,7 @@ service.register("listen", function (message) {
         message.respond({ returnValue: false, errorText: "Vyžadováno subscribe: true." });
         return;
     }
+    if (toastStory) { toastStory = null; closeToast(); }
     subscriptions[message.uniqueToken] = message;
     message.respond({ returnValue: true, ready: ready, networkReady: networkReady, name: receiverName });
     start();
@@ -186,6 +272,7 @@ service.register("toastMode", function (message) {
         startKeepAlive();
         if (message.payload && message.payload.hello) showToast(String(message.payload.hello));
     } else {
+        toastStory = null;
         stopKeepAlive();
         if (Object.keys(subscriptions).length === 0) stop();
     }

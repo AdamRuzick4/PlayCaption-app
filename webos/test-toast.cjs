@@ -13,6 +13,8 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
     const sockets = [], timers = new Set();
     const handlers = {};
     const toasts = [];            // zachycené zprávy createToast
+    let now = 10000, replyToToast;
+    const replies = [];
     let activityCreated = 0, activityCompleted = 0;
     const watchdog = setTimeout(() => { console.error('toast test timeout'); process.exit(1); }, 6000);
 
@@ -22,7 +24,8 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
         this.call = (uri, params, cb) => {
             if (uri.indexOf('createToast') >= 0) {
                 toasts.push(params && params.message);
-                if (cb) cb({ payload: { returnValue: true, toastId: 't' + toasts.length } });
+                replyToToast = cb;
+                if (!params.message.startsWith('Story')) cb({ payload: { returnValue: true, toastId: 't' + toasts.length } });
             } else if (cb) cb({ payload: { returnValue: true } });
         };
         this.activityManager = {
@@ -44,13 +47,13 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
                     const bind = socket.bind.bind(socket);
                     socket.bind = (port, host, callback) => { assert.equal(port, 41989); bind(0, '127.0.0.1', callback); };
                     // discovery broadcast spolkni, ať test nešumí do sítě
-                    socket.send = (data, port, host, cb) => { if (cb) cb(); };
+                    socket.send = (data, ...args) => { const [port, host, cb] = args.slice(-3); if (data.toString().startsWith('PCA1')) replies.push([data.toString(),port,host]); if (cb) cb(); };
                     sockets.push(socket);
                     return socket;
                 } };
                 return require(name.startsWith('./') ? './service/' + name.slice(2) : name);
             },
-            Buffer, console,
+            Buffer, console, Date: { now: () => now },
             setInterval(cb, ms) { const t = setInterval(cb, ms); timers.add(t); return t; },
             clearInterval(t) { clearInterval(t); timers.delete(t); }
         });
@@ -81,6 +84,63 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
         sender.send(Buffer.from('PCT1\t4\t6000\tTřetí\t'), port, '127.0.0.1');
         await delay(120);
         assert.deepEqual(toasts, ['Ahoj světe', 'Třetí'], 'stejný text se do 4 s neopakuje');
+
+        // Hodiny řídí test. Stejný paket Android znovu posílá i při ztrátě ACK.
+        const session = 'a'.repeat(32);
+        const remote = {address:'127.0.0.1',port:sender.address().port};
+        function story(n, text, paused=false) {
+            const id = session+'.1.'+n+'.0';
+            replies.length = 0;
+            sockets[0].emit('message',Buffer.from(['PCS1',id,paused?'1':'0',text,'0.5','0.9','0.8','1','','D:100'].join('\t')),remote);
+            if (!replies.length) return null;
+            assert.equal(replies.length,1);
+            const [ack,port,host] = replies[0];
+            assert.equal(port,remote.port);
+            assert.equal(host,remote.address);
+            assert.equal(ack.split('\t')[1],id);
+            return ack.split('\t')[2];
+        }
+        const accepted = () => replyToToast({payload:{returnValue:true,toastId:'story-toast'}});
+        assert.notEqual(story(1,'Story A'),'done');
+        now+=2000;assert.notEqual(story(1,'Story A'),'done','čekáme na skutečnou odpověď LG');
+        accepted();
+        now+=1199;assert.equal(story(1,'Story A'),'reading');
+        now++;assert.equal(story(1,'Story A'),'done');
+        assert.equal(story(1,'Story A'),'done');
+        assert.equal(toasts.filter(t=>t==='Story A').length,1);
+        story(2,'Story A'); // stejné znění, nová replika
+        assert.equal(toasts.filter(t=>t==='Story A').length,2);
+        const stale = replyToToast;
+        story(3,'Story B');
+        stale({payload:{returnValue:true,toastId:'old'}});
+        replyToToast({payload:{returnValue:false}});
+        now+=2000;assert.notEqual(story(3,'Story B'),'done');
+        accepted();
+        now+=500;assert.equal(story(3,'Story B',true),'reading');
+        now+=3000;assert.notEqual(story(3,'Story B'),'done');
+        accepted();now+=1200;assert.equal(story(3,'Story B'),'done');
+        assert.equal(story(2,'Story A'),null,'opožděný paket nesmí přepsat novou repliku');
+        story(4,'Story čeká');const pending = replyToToast;
+        now+=5001;assert.notEqual(story(4,'Story čeká'),'done','chybějící odpověď se zkusí znovu');
+        pending({payload:{returnValue:true}});
+        now+=1200;assert.notEqual(story(4,'Story čeká'),'done','stará odpověď neodstartuje čtení');
+        assert.equal(story(5,''),'done','zrušení prázdným paketem');
+        const long = 'Story '+('dlouhá věta '.repeat(20)).trim();
+        story(6,long);accepted();
+        let state;
+        for (let i=0;i<40;i++) {
+            now+=1000;const count=toasts.length;
+            state=story(6,long);
+            if(toasts.length>count) accepted();
+            if(state==='done') break;
+        }
+        assert.equal(state,'done');
+        const start=toasts.findIndex(t=>t.startsWith('Story dlouhá'));
+        assert.equal(toasts.slice(start).join(' '),long);
+        handlers.listen.request({isSubscription:true,uniqueToken:'overlay',respond(){}});
+        assert.equal(story(7,'Story živého překryvu'),null,'potvrzení patří překryvu');
+        assert.ok(!toasts.includes('Story živého překryvu'));
+        handlers.listen.cancel({uniqueToken:'overlay'});
 
         // 4) Vypnutí toast režimu dokončí aktivitu a (bez odběratele) zavře socket.
         const closed = new Promise((resolve) => sockets[0].once('close', resolve));
