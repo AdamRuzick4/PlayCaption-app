@@ -17,7 +17,26 @@ v PlayCaption. `com.webos.service.eim/getAllInputStatus` poskytne seznam vstupů
 `switchInput` ověří vybrané ID a služba krátce podrží Activity Manager aktivitu.
 Nejprve spustí HDMI a následně vlastní overlay s `resumeOverlay: true`, takže
 uzavření původního UI při přepnutí nezastaví dokončení operace. Aktivita se uvolní
-po úspěchu, chybě nebo timeoutu 12 s. Služba neběží trvale po zavření přijímače.
+po úspěchu, chybě nebo timeoutu 12 s. Služba neběží trvale po zavření přijímače
+(mimo toast režim, viz níže).
+
+### Toast režim (TV bez overlaye přes externí HDMI, např. webOS Lite)
+
+Některé TV (ověřeno na LG UP81, webOS 6.5.3 „webOS TV Lite") neudrží průhledný
+overlay přes externí HDMI vstup – po přepnutí na HDMI se web-aplikace zavře a titulky
+nemá co vykreslit. webOS ale přes jakýkoli vstup včetně HDMI zobrazí systémové toasty.
+Když uživatel ve výběru zvolí HDMI, UI zapne ve službě příkaz `toastMode`:
+
+- služba se aktivitou `com.webos.service.activitymanager` udrží naživu i po zavření UI,
+  takže UDP socket poslouchá dál;
+- příchozí titulek bez živého overlay-odběratele se ukáže přes
+  `com.webos.notification/createToast` (stejný text se do 4 s neopakuje, předchozí
+  toast se zkusí zavřít);
+- když overlay žije (na TV, která ho přes HDMI udrží), toast se neposílá – přednost má
+  hezčí pruh. Režim je hybridní a degraduje na toasty jen tam, kde to systém vyžaduje.
+
+Toast má systémový vzhled a krátkou dobu zobrazení; není to plnohodnotný pruh, ale
+funguje na TV, kde overlay přes HDMI k dispozici není.
 
 Nejde o automatické obnovení po libovolném přepnutí vstupu přes systémové menu.
 `getForegroundAppInfo` testované C5 webové aplikaci odmítla; takovou funkci
@@ -25,7 +44,7 @@ nepovažujeme za dostupnou jen na základě existence metody.
 
 - `app/`: průhledné HTML/CSS/JS UI, životní cyklus, heartbeat a doba zobrazení.
 - `service/`: Node.js služba používající systémový `webos-service`, UDP a parser.
-- `test.cjs`, `test-udp.cjs`, `test-input.cjs`, `test-receiver.cjs`, `test-controls.cjs`, `test-story.cjs`: regrese UI/protokolu, UDP, přepínání HDMI a shoda vykreslení.
+- `test.cjs`, `test-udp.cjs`, `test-input.cjs`, `test-receiver.cjs`, `test-controls.cjs`, `test-story.cjs`, `test-toast.cjs`: regrese UI/protokolu, UDP, přepínání HDMI, shoda vykreslení a toast režim.
 - `build.py`: testy, syntaxe, sestavení IPK, kontrola obsahu a distribuční ZIP.
 
 Kompatibilní protokol je v Android `Propojeni.kt`: `PLAYCAPTION_TV` na UDP 41988
