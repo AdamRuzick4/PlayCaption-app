@@ -56,7 +56,14 @@ assert.doesNotMatch(nodes['connection-info'].textContent,/dalšího zařízení/
 bridges.filter(b=>b.uri.endsWith('/restartUserActivityTimer')).at(-1).onservicecallback('{"returnValue":false}');tick();
 assert.match(nodes['connection-info'].textContent,/LG odmítá/);
 assert.equal(nodes.status.hidden,false);
-emit({returnValue:false,errorText:'Příjem selhal'});
+send('PCT1\t4\t6000\tTitulek i přes varování.\t');tick();
+assert.equal(nodes.subtitle.hidden,false);
+assert.match(nodes['connection-info'].textContent,/Zařízení posílá platná data/);
+assert.match(nodes['connection-info'].textContent,/LG odmítá/);
+emit({returnValue:false,errorText:'Příjem selhal'});tick();
+assert.match(nodes.status.textContent,/Příjem selhal/);
+assert.match(nodes['connection-info'].textContent,/Příjem selhal/);
+assert.match(nodes['connection-info'].textContent,/LG odmítá/);
 now+=45000;tick();
 bridges.filter(b=>b.uri.endsWith('/restartUserActivityTimer')).at(-1).onservicecallback('{"returnValue":true}');tick();
 assert.match(nodes['connection-info'].textContent,/Příjem selhal/);
@@ -65,7 +72,10 @@ assert.match(nodes['connection-info'].textContent,/neplatná odpověď/);
 nodes['change-input'].onclick();assert.equal(nodes.controls.hidden,true);assert.equal(nodes.inputs.hidden,false);
 const list=bridges.filter(b=>b.uri.endsWith('/getAllInputStatus')).at(-1);
 list.onservicecallback(JSON.stringify({returnValue:true,devices:[{appId:'com.webos.app.hdmi3'}]}));
+const switchesBefore = bridges.filter(b=>b.uri.endsWith('/switchInput')).length;
 nodes['input-current'].onclick();assert.equal(nodes.inputs.hidden,true);
+assert.equal(bridges.filter(b=>b.uri.endsWith('/switchInput')).length,switchesBefore);
+assert.equal(receiver().cancelled,undefined,'Při pokračování nad hrou zůstává příjem zapnutý.');
 key(461);nodes['close-app'].onclick();assert.equal(closed,1);assert.equal(intervals.size,0);
 assert.equal(receiver().cancelled,true);
 assert.equal(bridges.some(b=>b.uri.endsWith('/storyAck')),false,'Lokální test/skrytí nic nepotvrzují jako dočtené.');
@@ -86,4 +96,11 @@ const nextStory=()=>send('PCS1\t'+'b'.repeat(32)+'.1.2.0\t0\tDalší příběhov
 nextStory();key(13);key(40);key(13);
 for(let n=0;n<16;n++){now+=250;nextStory();tick();assert.equal(ack(),'reading');}
 assert.equal(nodes.output.hidden,true);
+// Na starší LG mohou selhat prodloužení překryvu i start služby současně.
+listeners.webOSRelaunch({detail:{resumeOverlay:true}});
+bridges.filter(b=>b.uri.endsWith('/restartUserActivityTimer')).at(-1).onservicecallback('{"returnValue":false}');
+now+=10001;tick();key(13);
+assert.match(nodes.status.textContent,/Služba nepotvrdila spuštění/);
+assert.match(nodes['connection-info'].textContent,/Služba nepotvrdila spuštění/);
+assert.match(nodes['connection-info'].textContent,/LG odmítá/);
 console.log('OK: Story s novým menu, skrytí a lokální test pozastaví dočtení; obnovení zachová repliku.');
