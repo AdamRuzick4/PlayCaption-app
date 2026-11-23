@@ -8,6 +8,8 @@ internal class LgInstalacniChyba(val kod: LgChyba, val detail: String? = null) :
 internal enum class LgFaze { BALICEK, KLIC, PRIPOJENI, PRENOS, INSTALACE, OVERENI, KONTROLA }
 
 internal object LgInstalacniProtokol {
+    fun adresaZPole(value: String) = adresa(value.replace(',', '.'))
+
     fun adresa(value: String): String {
         val ip = value.trim()
         val parts = ip.split('.')

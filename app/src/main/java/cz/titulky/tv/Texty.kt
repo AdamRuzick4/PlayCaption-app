@@ -216,6 +216,7 @@ object Texty {
         "lgFazePRENOS" to listOf("Přenáším a kontroluji balíček…", "Prenášam a kontrolujem balíček…"),
         "lgFazeINSTALACE" to listOf("LG instaluje přijímač. Nevypínej TV…", "LG inštaluje prijímač. Nevypínaj TV…"),
         "lgFazeOVERENI" to listOf("Ověřuji nainstalovanou verzi a spouštím přijímač…", "Overujem nainštalovanú verziu a spúšťam prijímač…"),
+        "lgIpChybi" to listOf("Vyplň IP adresu televize z Developer Mode.", "Vyplň IP adresu televízora z Developer Mode."),
         "lgChybaADRESA" to listOf("Zadej místní IPv4 adresu TV z Developer Mode, bez portu.", "Zadaj miestnu IPv4 adresu TV z Developer Mode, bez portu."),
         "lgChybaBALICEK" to listOf("Přibalený LG balíček neprošel kontrolou. Zkus nové vydání PlayCaption nebo ruční instalaci.", "Pribalený LG balíček neprešiel kontrolou. Skús nové vydanie PlayCaption alebo ručnú inštaláciu."),
         "lgChybaKEY_SERVER" to listOf("Key Server není dostupný nebo nevrátil platný klíč. Zkontroluj IP, stejnou síť a zapni Key Server na TV.", "Key Server nie je dostupný alebo nevrátil platný kľúč. Skontroluj IP, rovnakú sieť a zapni Key Server na TV."),

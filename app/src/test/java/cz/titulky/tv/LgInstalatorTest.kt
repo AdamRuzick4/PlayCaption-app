@@ -64,6 +64,12 @@ class LgInstalatorTest {
         for (v in listOf("127.0.0.1", "8.8.8.8", "0.0.0.0", "224.0.0.1", "tv.local", "192.168.0.1;id", "192.168.0.999", "192.168.00.1"))
             chyba(LgChyba.ADRESA) { LgInstalacniProtokol.adresa(v) }
     }
+    @Test fun wizardAcceptsKeyboardSeparatorsButKeepsLocalAddressRestrictions() {
+        assertEquals("192.168.1.23", LgInstalacniProtokol.adresaZPole(" 192,168,1,23 "))
+        assertEquals("192.168.1.23", LgInstalacniProtokol.adresaZPole("192.168.1.23"))
+        for (v in listOf("", "192,168,1,23:9922", "8,8,8,8", "192,168,001,23", "http://192.168.1.23"))
+            chyba(LgChyba.ADRESA) { LgInstalacniProtokol.adresaZPole(v) }
+    }
     @Test fun packageIdentitySizeAndChecksumMustAllMatch() {
         assertEquals("0.1.0", LgBalicek.over(manifest().toString(), bytes).verze)
         for ((k,v) in listOf("id" to "cizi.app", "version" to "../../x", "file" to "cizi.ipk", "size" to 1, "sha256" to "wrong", "platform" to "android", "schema" to 2)) {

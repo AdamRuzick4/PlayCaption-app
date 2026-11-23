@@ -20,6 +20,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.widget.doAfterTextChanged
 
 /** Navigace je pouze rozpracovaný návod, nikoliv potvrzení instalace nebo spojení. */
 internal class LgPruvodceStav(ulozeny: Int) {
@@ -61,6 +62,7 @@ class LgPruvodce(private val activity: Activity, private val vyhledej: () -> Uni
     private var tlacitkoPrijmu: TextView? = null
     private var zadanaIp = TvProfily(activity).let { p -> p.posledniId?.let { p.najdi(it) } }
         ?.takeIf { it.platforma == TvPlatforma.WEBOS }?.ip.orEmpty()
+    private var rozepsanaIp = zadanaIp
     private val dialog = object : Dialog(activity, android.R.style.Theme_DeviceDefault_NoActionBar) {
         @Deprecated("Deprecated in Java")
         override fun onBackPressed() {
@@ -207,7 +209,8 @@ class LgPruvodce(private val activity: Activity, private val vyhledej: () -> Uni
             inputType = InputType.TYPE_CLASS_TEXT or if (heslo) InputType.TYPE_TEXT_VARIATION_PASSWORD else InputType.TYPE_TEXT_VARIATION_URI
         }
         val ip = pole(t("lgIp"))
-        ip.setText(zadanaIp)
+        ip.setText(rozepsanaIp)
+        ip.doAfterTextChanged { rozepsanaIp = it.toString() }
         val pass = pole(t("lgPassphrase"), true)
         radek(ip); radek(pass)
         if (LgDevUloziste(activity).maParovani(zadanaIp)) radek(text(t("lgParovaniUlozene"), 16f))
@@ -222,7 +225,7 @@ class LgPruvodce(private val activity: Activity, private val vyhledej: () -> Uni
         }, 17f, Color.parseColor(when { chyba != null -> "#FF9191"; vysledek != null -> "#3CFF6E"; else -> "#B2B3BF" })).also { it.setTextIsSelectable(true); radek(it) }
         cilKontroly()?.let { cil ->
             pridejKontroluPrijmu(obsah, cil) {
-                if (ip.text.toString().trim() != cil.ip) {
+                if (runCatching { LgInstalacniProtokol.adresaZPole(rozepsanaIp) }.getOrNull() != cil.ip) {
                     Toast.makeText(activity, t("lgOvereniNejdriv"), Toast.LENGTH_LONG).show()
                 } else overPrijimac(cil)
             }
@@ -231,21 +234,28 @@ class LgPruvodce(private val activity: Activity, private val vyhledej: () -> Uni
             radek(ProgressBar(activity))
             radek(tlacitko(t("lgZrusitInstalaci")) { instalator?.zrus() })
         } else {
-            fun heslo(): CharArray {
-                zadanaIp = ip.text.toString().trim()
-                val value = pass.text.toString().toCharArray()
+            fun spustZPole(jenKontrola: Boolean) {
+                val adresa = try {
+                    LgInstalacniProtokol.adresaZPole(rozepsanaIp)
+                } catch (_: LgInstalacniChyba) {
+                    ip.requestFocus()
+                    ip.error = t(if (rozepsanaIp.isBlank()) "lgIpChybi" else "lgChybaADRESA")
+                    return
+                }
+                zadanaIp = adresa
+                rozepsanaIp = adresa
+                val secret = pass.text.toString().toCharArray()
                 pass.text.clear()
-                return value
+                spustInstalaci(secret, jenKontrola || adresa != overenaIp)
             }
-            radek(tlacitko(t("lgOveritTv"), hlavni = prijimac == null) { spustInstalaci(heslo(), true) })
+            radek(tlacitko(t("lgOveritTv"), hlavni = prijimac == null) { spustZPole(true) })
             prijimac?.let { p ->
                 radek(tlacitko(t(when (p.stav) {
                     LgStavVerze.CHYBI -> "lgInstalovatNove"
                     LgStavVerze.AKTUALIZACE -> "lgAktualizovat"
                     else -> "lgSpustitPrijimac"
                 }), hlavni = true) {
-                    val secret = heslo()
-                    spustInstalaci(secret, zadanaIp != overenaIp)
+                    spustZPole(false)
                 })
             }
             if (chyba == LgChyba.IDENTITA) radek(tlacitko(t("lgNoveParovani")) {
