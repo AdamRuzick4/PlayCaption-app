@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const dgram = require('node:dgram');
+const { once } = require('node:events');
 
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,7 +48,13 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
                     const bind = socket.bind.bind(socket);
                     socket.bind = (port, host, callback) => { assert.equal(port, 41989); bind(0, '127.0.0.1', callback); };
                     // discovery broadcast spolkni, ať test nešumí do sítě
-                    socket.send = (data, ...args) => { const [port, host, cb] = args.slice(-3); if (data.toString().startsWith('PCA1')) replies.push([data.toString(),port,host]); if (cb) cb(); };
+                    const send = socket.send.bind(socket);
+                    socket.send = (data, ...args) => {
+                        const [port, host, cb] = args.slice(-3);
+                        if (port === 41988) { if (cb) cb(); return; }
+                        replies.push([data.toString(), port, host]);
+                        send(data, ...args);
+                    };
                     sockets.push(socket);
                     return socket;
                 } };
@@ -87,6 +94,17 @@ const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
         // Hodiny řídí test. Stejný paket Android znovu posílá i při ztrátě ACK.
         const session = 'a'.repeat(32);
+        const wireId = session+'.1.0.0';
+        async function onWire(frame) {
+            const response = once(sender,'message');
+            sender.send(Buffer.from(frame),port,'127.0.0.1');
+            return (await response)[0].toString();
+        }
+        assert.equal(await onWire('PCQ1\t'+wireId),'PCA1\t'+wireId+'\tready');
+        const frame = ['PCS1',wireId,'0','Krátká replika','0.5','0.9','0.8','1','','D:100'].join('\t');
+        assert.equal(await onWire(frame),'PCA1\t'+wireId+'\treading');
+        now+=1200;
+        assert.equal(await onWire(frame),'PCA1\t'+wireId+'\tdone');
         const remote = {address:'127.0.0.1',port:sender.address().port};
         function story(n, text, paused=false) {
             const id = session+'.1.'+n+'.0';
