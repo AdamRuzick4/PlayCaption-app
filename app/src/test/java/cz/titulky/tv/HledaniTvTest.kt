@@ -7,6 +7,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HledaniTvTest {
     private val lg = Propojeni.Televize("lg-001122334455", "LG", "127.0.0.1", false)
@@ -43,6 +44,32 @@ class HledaniTvTest {
                 assertTrue(Propojeni.hledejVSiti(300, listOf(lg)).none { it.ip == lg.ip })
             }
         }
+    }
+
+    @Test fun watchdogAcceptsOnlyTheSelectedLg() {
+        odpovidac({ nonce -> "PLAYCAPTION_TV\t${lg.id}\tLG\t0\t$nonce" }) {
+            assertTrue(LgUdrzovani.prijimacBezi(lg.ip, lg.id) { true })
+        }
+        odpovidac({ nonce -> "PLAYCAPTION_TV\tlg-ffeeddccbbaa\tLG 2\t0\t$nonce" }) {
+            assertFalse(LgUdrzovani.prijimacBezi(lg.ip, lg.id) { true })
+        }
+    }
+
+    @Test fun watchdogDiscardsReplyWhenOutputChangesDuringProbe() {
+        val vybrana = AtomicBoolean(true)
+        odpovidac({ nonce ->
+            vybrana.set(false)
+            "PLAYCAPTION_TV\t${lg.id}\tLG\t0\t$nonce"
+        }) {
+            assertFalse(LgUdrzovani.prijimacBezi(lg.ip, lg.id, vybrana::get))
+        }
+    }
+
+    @Test fun watchdogIgnoresPacketsFromOtherIpsAndOtherQueries() {
+        val fields = listOf("PLAYCAPTION_TV", lg.id, "LG", "0", "current")
+        assertFalse(Propojeni.primaOdpoved(fields, "current", "127.0.0.2", lg.id, lg.ip))
+        assertFalse(Propojeni.primaOdpoved(fields, "previous", lg.ip, lg.id, lg.ip))
+        assertFalse(Propojeni.primaOdpoved(listOf("PCT1") + fields.drop(1), "current", lg.ip, lg.id, lg.ip))
     }
 
     @Test fun legacyAndroidAnnouncementStillWorks() {

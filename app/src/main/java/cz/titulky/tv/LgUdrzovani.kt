@@ -18,28 +18,36 @@ internal object LgUdrzovani {
     /** Poslední stav (pro diagnostiku). */
     @Volatile var stav: String = "vypnuto (zapne se s překladem do LG)"
 
-    fun zapni(context: Context) {
+    @Synchronized fun zapni(context: Context) {
         if (vlakno?.isAlive == true) return
         val app = context.applicationContext
-        vlakno = Thread {
+        val store = LgDevUloziste(app)
+        val profily = TvProfily(app)
+        val noveVlakno = Thread {
             var pauzaDo = 0L
             var hlasenoBezParovani = false
-            while (!Thread.currentThread().isInterrupted) {
+            val pracovnik = Thread.currentThread()
+            while (vlakno === pracovnik && !pracovnik.isInterrupted) {
                 try {
                     val ip = Propojeni.Vysilac.cilIp
-                    val store = LgDevUloziste(app)
-                    val id = ip?.let { runCatching { store.parovaniId(it) }.getOrNull() }
-                    if (ip == null) {
+                    val id = TvProfily.aktivniId
+                    fun staleVybrana() = vlakno === pracovnik && !pracovnik.isInterrupted &&
+                        RemotePlayService.aktivni && !RemotePlayService.pozastaveno &&
+                        TvProfily.aktivniId == id && Propojeni.Vysilac.cilIp == ip
+                    if (ip == null || id == null || !staleVybrana() || profily.platformaPrijimace(id) != TvPlatforma.WEBOS) {
                         stav = "čeká, až vybereš televizi"
-                    } else if (id == null || !store.maParovani(ip)) {
+                    } else if (store.parovaniId(ip) != id || !store.maParovani(ip)) {
                         stav = "chybí spárování s LG (Výstup titulků → Jak připojit televizi → Ověřit TV)"
                         if (!hlasenoBezParovani) { zapis(app, "udržování LG: chybí uložené spárování pro $ip"); hlasenoBezParovani = true }
                     } else {
                         hlasenoBezParovani = false
-                        if (prijimacBezi(ip)) {
+                        val bezi = prijimacBezi(ip, id, ::staleVybrana)
+                        if (!staleVybrana()) continue
+                        if (bezi) {
                             stav = "zapnuto, přijímač běží"
                         } else if (System.currentTimeMillis() >= pauzaDo) {
-                            val ok = runCatching { LgInstalator.vytvor(app, id).obnovPrekryv(ip) }
+                            val ok = runCatching { LgInstalator.vytvor(app, id).obnovPrekryv(ip, ::staleVybrana) }
+                            if (!staleVybrana()) continue
                             val spusteno = ok.getOrDefault(false)
                             stav = if (spusteno) "zapnuto, přijímač znovu spuštěn" else "televize nedostupná, zkouším dál"
                             zapis(app, "udržování LG: přijímač neodpovídal → " +
@@ -54,33 +62,41 @@ internal object LgUdrzovani {
                     try { Thread.sleep(5000) } catch (_: InterruptedException) { break }
                 }
             }
-        }.apply { isDaemon = true; name = "lg-udrzovani"; start() }
+        }.apply { isDaemon = true; name = "lg-udrzovani" }
+        vlakno = noveVlakno
+        noveVlakno.start()
     }
 
-    fun vypni() {
+    @Synchronized fun vypni() {
         vlakno?.interrupt()
         vlakno = null
         stav = "vypnuto (zapne se s překladem do LG)"
     }
 
     /** Přijímač odpovídá na PLAYCAPTION_FIND jen když běží. */
-    private fun prijimacBezi(ip: String): Boolean = runCatching {
+    internal fun prijimacBezi(ip: String, id: String, staleVybrana: () -> Boolean): Boolean {
         DatagramSocket().use { s ->
-            s.soTimeout = 1500
             val nonce = java.util.UUID.randomUUID().toString().replace("-", "")
             val dotaz = "PLAYCAPTION_FIND\t$nonce".toByteArray(Charsets.UTF_8)
             val kam = InetAddress.getByName(ip)
+            val buf = ByteArray(2048)
             repeat(3) {
+                if (!staleVybrana()) return false
                 s.send(DatagramPacket(dotaz, dotaz.size, kam, Propojeni.PORT_TITULKY))
-                try {
-                    val buf = ByteArray(2048)
-                    s.receive(DatagramPacket(buf, buf.size))
-                    return@runCatching true
-                } catch (_: SocketTimeoutException) { /* další pokus */ }
+                val konec = System.nanoTime() + 1_500_000_000L
+                while (staleVybrana()) {
+                    val zbyva = konec - System.nanoTime()
+                    if (zbyva <= 0) break
+                    s.soTimeout = (zbyva / 1_000_000L + 1).toInt()
+                    val p = DatagramPacket(buf, buf.size)
+                    try { s.receive(p) } catch (_: SocketTimeoutException) { break }
+                    val casti = String(buf, 0, p.length, Charsets.UTF_8).split('\t')
+                    if (Propojeni.primaOdpoved(casti, nonce, p.address.hostAddress ?: continue, id, ip)) return staleVybrana()
+                }
             }
-            false
+            return false
         }
-    }.getOrDefault(false)
+    }
 
     internal fun zapis(c: Context, t: String) {
         runCatching {

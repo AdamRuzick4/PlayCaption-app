@@ -11,6 +11,7 @@ const { once } = require('node:events');
     const sender = dgram.createSocket('udp4');
     const sockets = [], timers = new Set();
     const handlers = {};
+    const nativeSend = dgram.Socket.prototype.send;
     let pending;
     const watchdog = setTimeout(() => { console.error('UDP test timeout'); process.exit(1); }, 5000);
     function Service() { this.register = (name, request, cancel) => { handlers[name] = { request, cancel }; }; }
@@ -25,18 +26,20 @@ const { once } = require('node:events');
                         test: [{ internal: false, family: 'IPv4', address: '127.0.0.1', netmask: '255.0.0.0', mac: '00:11:22:33:44:55' }]
                     })
                 };
-                if (name === 'dgram') return { createSocket() {
+                if (name === 'dgram') return { Socket: dgram.Socket, createSocket() {
                     const socket = dgram.createSocket('udp4');
                     const bind = socket.bind.bind(socket), send = socket.send.bind(socket);
                     socket.bind = (port, host, callback) => {
                         assert.equal(port, 41989);
                         bind(0, '127.0.0.1', callback);
                     };
-                    socket.send = (data, port, host, callback) => {
+                    socket.send = (data, offset, length, port, host, callback) => {
+                        assert.equal(offset, 0);
+                        assert.equal(length, data.length);
                         if (port === 41988) {
                             assert.equal(host, '127.255.255.255');
-                            send(data, discovery.address().port, '127.0.0.1', callback);
-                        } else { assert.equal(host, '127.0.0.1'); send(data, port, host, callback); }
+                            send(data, offset, length, discovery.address().port, '127.0.0.1', callback);
+                        } else { assert.equal(host, '127.0.0.1'); send(data, offset, length, port, host, callback); }
                     };
                     sockets.push(socket);
                     return socket;
@@ -47,6 +50,7 @@ const { once } = require('node:events');
             setInterval(callback, ms) { const timer = setInterval(callback, ms); timers.add(timer); return timer; },
             clearInterval(timer) { clearInterval(timer); timers.delete(timer); }
         });
+        assert.equal(dgram.Socket.prototype.send, nativeSend, "LG nesmí změnit odesílání ostatních UDP socketů");
         const ready = new Promise(resolve => {
             handlers.listen.request({ isSubscription: true, uniqueToken: 'udp-test', respond(result) {
                 assert.equal(result.returnValue, true, result.errorText);

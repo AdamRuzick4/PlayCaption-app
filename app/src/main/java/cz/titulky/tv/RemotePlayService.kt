@@ -234,6 +234,7 @@ class RemotePlayService : Service() {
                 if (!aktivni) obrazStav.zacni()
                 automat = true
                 aktivni = true
+                if (telefon) LgUdrzovani.zapni(this)
                 if (posluchac == null) posluchac = Predavani.Posluchac(this) { ui.post { prevzaloJine() } }
                 // spojení "visí" (televize/PS5 spaly, obraz nechodí) → zahodit a připojit znovu
                 if (pripojeno() && System.currentTimeMillis() - posledniSnimekKdy > 8000) {
@@ -266,7 +267,6 @@ class RemotePlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        LgUdrzovani.zapni(this) // starší LG zavírá překryv – znovu ho spustit
         ui.post(pribehHlidac)
         Pady.hlidej(this)
         // televize, která sama o sobě hlásí "málo paměti" → rovnou šetřit
