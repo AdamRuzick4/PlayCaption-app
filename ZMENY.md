@@ -6,7 +6,15 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- Na telefonu a tabletu lze načíst vlastní JSON s poli `original` a `czech` přes Co překládat → Vlastní knihovna překladů. Nalezená replika má v českých dialozích přednost i před profilem GTA.
+
+- V českém Příběhovém režimu lze zapnout místní profil GTA pro slang, význam podle předchozích replik a rod u označeného mluvčího. Ostatní věty překládá zvolený překladač.
+
+- Story: volitelný DeepL s vlastním šifrovaně uloženým API klíčem a samostatným
+  kontextem předchozích stabilních replik. Překládá a zobrazuje se pouze nový text;
+  paměť rozlišuje překladač, jazyk a kontext. Nově lze zvolit také místní ML Kit.
+  Výchozí Automaticky i Standardní režim zůstávají. Časové limity a protokoly TV
+  se nemění; kvalita češtiny a fyzická přejímka s reálným DeepL účtem ještě zbývá.
 
 ## 0.22 (versionCode 35)
 

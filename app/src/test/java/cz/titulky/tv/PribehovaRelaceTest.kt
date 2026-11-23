@@ -7,17 +7,35 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 
 class PribehovaRelaceTest {
+    @Test fun kontextPatriPozadavkuNezavisleNaPoradiDokonceniAPoResetuZmizi() {
+        val pozadavky = mutableListOf<Pair<List<String>, String>>()
+        val hotovo = mutableListOf<(String) -> Unit>()
+        val r = PribehovaRelace({ text, kontext, ok, _ -> pozadavky += text to kontext; hotovo += ok }, { fail(it) })
+        r.prijmi(listOf("Arthur: Come here."), intArrayOf(), false, 0)
+        r.prijmi(listOf("John: I don't knovv."), intArrayOf(), false, 100)
+        r.prijmi(listOf("John: I don't know."), intArrayOf(), true, 200)
+        assertEquals(listOf("", "Arthur: Come here.", "Arthur: Come here."), pozadavky.map { it.second })
+        hotovo[2]("Johne, nevím."); hotovo[0]("Pojď sem."); hotovo[1]("Stará revize.")
+        val first = r.krok(300, true, false)!!
+        assertEquals("Pojď sem.", first.text); r.potvrzeno(first.token)
+        assertEquals("Johne, nevím.", r.krok(400, true, false)!!.text)
+        r.reset()
+        r.prijmi(listOf("New scene."), intArrayOf(), false, 500)
+        assertEquals("", pozadavky.last().second)
+        hotovo[2]("Pozdní starý překlad.")
+        assertNull(r.krok(600, true, false))
+    }
     private class Scena {
         val hotovo = mutableListOf<(String) -> Unit>()
         val chyba = mutableListOf<() -> Unit>()
         val zpravy = mutableListOf<String>()
-        val r = PribehovaRelace({ _, ok, err -> hotovo += ok; chyba += err }, { zpravy += it })
+        val r = PribehovaRelace({ _, _, ok, err -> hotovo += ok; chyba += err }, { zpravy += it })
         fun nova(text: String, oprava: Boolean = false) = r.prijmi(listOf(text), intArrayOf(-65536), oprava, 0)
     }
     @Test fun skladaniJePredPreklademAVysledkyZustanouVPoradi() {
         val anglicky = mutableListOf<List<String>>()
         val preklady = mutableListOf<(String) -> Unit>()
-        val r = PribehovaRelace({ en, ok, _ -> anglicky += en; preklady += ok }, { fail(it) })
+        val r = PribehovaRelace({ en, _, ok, _ -> anglicky += en; preklady += ok }, { fail(it) })
         r.prijmiOcr(10, listOf("I'm drunk and you are such"), intArrayOf(), false, 0)
         assertTrue(anglicky.isEmpty()); assertNull(r.krok(500, true, false))
         r.prijmiOcr(11, listOf("a downer. I'm going home."), intArrayOf(), false, 1000)
@@ -31,7 +49,7 @@ class PribehovaRelaceTest {
     @Test fun revizeStareCteniAPozdniPrekladNevytvoriDalsiPolozku() {
         val anglicky = mutableListOf<List<String>>()
         val callback = mutableListOf<(String) -> Unit>()
-        val r = PribehovaRelace({ en, ok, _ -> anglicky += en; callback += ok }, { fail(it) })
+        val r = PribehovaRelace({ en, _, ok, _ -> anglicky += en; callback += ok }, { fail(it) })
         r.prijmiOcr(10, listOf("We are such"), intArrayOf(), false, 0)
         r.prijmiOcr(11, listOf("We were such"), intArrayOf(), true, 100)
         r.prijmiOcr(9, listOf("Old unrelated frame."), intArrayOf(), false, 200)
@@ -42,7 +60,7 @@ class PribehovaRelaceTest {
     }
     @Test fun volbyUvolniZasobnikAPozastaviCteniNikolivPreklad() {
         val en = mutableListOf<List<String>>()
-        val r = PribehovaRelace({ text, ok, _ -> en += text; ok("Česky.") }, { fail(it) })
+        val r = PribehovaRelace({ text, _, ok, _ -> en += text; ok("Česky.") }, { fail(it) })
         r.prijmiOcr(1, listOf("We are such"), intArrayOf(), false, 0)
         assertNull(r.krok(500, true, true)); assertEquals(listOf(listOf("We are such")), en)
         r.prijmiOcr(2, listOf("a nuisance."), intArrayOf(), false, 600)
@@ -52,7 +70,7 @@ class PribehovaRelaceTest {
     }
     @Test fun viceMluvcichVJednomBlokuZachovaJmenaBarvyAObsah() {
         val anglicky = mutableListOf<List<String>>()
-        val r = PribehovaRelace({ en, ok, _ -> anglicky += en; ok(en.single()) }, { fail(it) })
+        val r = PribehovaRelace({ en, _, ok, _ -> anglicky += en; ok(en.single()) }, { fail(it) })
         r.prijmiOcr(1, listOf("Trevor: Hello.", "Michael: Bye."), intArrayOf(-65536, -16711936), false, 0)
         assertEquals(listOf(listOf("Trevor: Hello."), listOf("Michael: Bye.")), anglicky)
         val a = r.krok(0, true, false)!!; assertArrayEquals(intArrayOf(-65536), r.barvy(a.token))
@@ -61,7 +79,7 @@ class PribehovaRelaceTest {
     }
     @Test fun priRostouciFronteNedrzetDalsiNedokoncenouVetu() {
         val en = mutableListOf<List<String>>()
-        val r = PribehovaRelace({ text, _, _ -> en += text }, { fail(it) })
+        val r = PribehovaRelace({ text, _, _, _ -> en += text }, { fail(it) })
         for (n in 1L..3L) r.prijmiOcr(n, listOf("Whole sentence $n."), intArrayOf(), false, n)
         r.krok(4, true, false)
         r.prijmiOcr(4, listOf("We are such"), intArrayOf(), false, 5)
@@ -69,7 +87,7 @@ class PribehovaRelaceTest {
     }
     @Test fun starePrazdneOcrNesmiZkratitCekaniNovehoDialogu() {
         val en = mutableListOf<List<String>>()
-        val r = PribehovaRelace({ text, _, _ -> en += text }, { fail(it) })
+        val r = PribehovaRelace({ text, _, _, _ -> en += text }, { fail(it) })
         r.prijmiOcr(10, listOf("We are such"), intArrayOf(), false, 0)
         r.zmizelo(9, 100); r.krok(1000, true, false)
         assertTrue(en.isEmpty()); r.krok(2500, true, false); assertEquals(1, en.size)
@@ -77,7 +95,7 @@ class PribehovaRelaceTest {
 
     @Test fun jednoduchaOcrRevizeZachovaDosavadniOpravuPredZobrazenim() {
         val callbacks = mutableListOf<(String) -> Unit>()
-        val r = PribehovaRelace({ _, ok, _ -> callbacks += ok }, { fail(it) })
+        val r = PribehovaRelace({ _, _, ok, _ -> callbacks += ok }, { fail(it) })
         r.prijmiOcr(1, listOf("I don't knovv."), intArrayOf(), false, 0)
         r.prijmiOcr(2, listOf("I don't know."), intArrayOf(), true, 100)
         assertEquals(2, callbacks.size); assertEquals(1, r.pocet)

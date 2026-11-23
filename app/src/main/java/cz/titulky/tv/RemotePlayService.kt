@@ -86,17 +86,23 @@ class RemotePlayService : Service() {
     private var pribehLokalni: CteciFronta.Token? = null
     private var pribehChyba = ""
     private var pribehPristiPokus = 0L
-    private val pribeh = PribehovaRelace({ text, ok, chyba ->
-        prelozVse(text, false, pribeh = true, chybaPribehu = chyba, hotovo = ok)
-    }, { pribehChyba = it; zapis("[příběh: $it]") })
+    private val prekladKlic by lazy { PrekladKlic(this) }
+    private fun zKnihovny(text: String): String? =
+        if (telefon && nast.vlastniPreklady && nast.jazykNeboCs == "cs") VlastniKnihovna.pro(this).najdi(text) else null
+
+    private val pribeh = PribehovaRelace({ text, kontext, ok, chyba ->
+        prelozVse(text, false, pribeh = true, chybaPribehu = chyba, kontextDialogu = kontext, hotovo = ok)
+    }, { pribehChyba = it; zapis("[příběh: $it]") }, ::zKnihovny)
 
     private val tvProfily by lazy { TvProfily(this) }
     private fun platformaCile() = TvProfily.aktivniId?.let { tvProfily.platformaPrijimace(it) } ?: TvPlatforma.NEZNAMA
     private fun pozadujePribeh() = telefon && nast.pribehovy && nast.dialogy
+    private fun zahratPrekladac() { if (nast.motorPribehu.zahrivatGoogle(pozadujePribeh())) prekladac.udrzujSpojeni() }
     private fun chcePribeh() = pozadujePribeh() && PodporaPribehu.pouzit(
         Propojeni.Vysilac.cilIp, pribehSpojeni?.takeIf { it.podporujePribeh }?.ip)
     private fun pribehId(t: CteciFronta.Token) = "$pribehSession.${t.relace}.${t.poradi}.${t.revize}"
     private fun zrusPribeh(vycistitTelefon: Boolean = true) {
+        prekladac.zrusPribeh()
         pribeh.reset()
         pribehSpojeni?.let { sit ->
             if (sit.podporujePribeh) runCatching { sit.zrus(PribehProtokol.titulek("$pribehSession.${pribeh.generace}.0.0", "", true,
@@ -113,7 +119,7 @@ class RemotePlayService : Service() {
         }
     }
     private fun kontextPribehu() {
-        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${rucniOblast()?.joinToString()}:${Propojeni.Vysilac.cilIp}:${TvProfily.aktivniId}:${platformaCile()}"
+        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${nast.gtaProfilPribehu}:${rucniOblast()?.joinToString()}:${Propojeni.Vysilac.cilIp}:${TvProfily.aktivniId}:${platformaCile()}"
         val zmena = klic != pribehKontext
         if (zmena) {
             zrusPribeh(vycistitTelefon = false)
@@ -134,6 +140,7 @@ class RemotePlayService : Service() {
     private val pribehHlidac = object : Runnable {
         override fun run() {
             kontextPribehu()
+            pribehPrekladStav = if (pozadujePribeh() && bezi) prekladac.stavPribehu else ""
             if (pozadujePribeh() && bezi) {
                 val ted = android.os.SystemClock.elapsedRealtime()
                 val ip = Propojeni.Vysilac.cilIp
@@ -449,7 +456,9 @@ class RemotePlayService : Service() {
         // překladač "rozehřát" hned (první překlad jinak trvá ~4 s)
         if (!rozehrato) {
             rozehrato = true
-            prekladac.priprav(hotovo = { prekladac.preloz("Hello, friend.", {}, {}) }, chyba = {})
+            prekladac.priprav(hotovo = {
+                if (nast.motorPribehu.zahrivatGoogle(pozadujePribeh())) prekladac.preloz("Hello, friend.", {}, {})
+            }, chyba = {})
         }
         val udaje = RemotePlayUdaje(this)
         val ip = udaje.ipKonzole
@@ -594,7 +603,7 @@ class RemotePlayService : Service() {
         // zahřát čtečku a spojení s překladačem už teď – připojení k PS5 trvá ~6 s,
         // takže je všechno připravené dřív, než přijde první obraz
         ui.post { zahrejCtecku(predPripojenim = true) }
-        runCatching { prekladac.udrzujSpojeni() }
+        runCatching { zahratPrekladac() }
         // hláška "spouští se" se neukazuje – rušila; stačí krátké "aktivní" po připojení
 
         // Snímky z dekodéru přistanou sem (neukazují se nikde na obrazovce).
@@ -1124,7 +1133,7 @@ class RemotePlayService : Service() {
     private val ohrivac: Runnable = object : Runnable {
         override fun run() {
             if (!pripojeno()) return
-            prekladac.udrzujSpojeni()
+            zahratPrekladac()
             ui.postDelayed(this, 60_000)
         }
     }
@@ -1262,7 +1271,7 @@ class RemotePlayService : Service() {
         // tím nebylo – jinak by se spojilo s něčím, co k tomu nepatří ("I loved Davey…" + "they may be okay")
         val casOk = if (oprava) posledniSpojeno else ted - predchoziKdy < 15000 && ted - predchoziVidenKdy < 2500
         var spojeno = false
-        if (nova != null && pred != null && casOk && novaPokracuje &&
+        if (nova != null && pred != null && casOk && novaPokracuje && zKnihovny(nova) == null &&
             (predTecky || predKonec.lastOrNull() !in listOf('.', '!', '?', '"', '…'))
         ) {
             val zacatek = predKonec.trimEnd('.', '…', ' ')
@@ -1312,7 +1321,12 @@ class RemotePlayService : Service() {
 
     /** Přeloží všechny repliky (jméno postavy nechá) a výsledek spojí pod sebe. */
     private fun prelozVse(repliky: List<String>, rychle: Boolean, pribeh: Boolean = false,
-        chybaPribehu: () -> Unit = {}, hotovo: (String) -> Unit) {
+        chybaPribehu: () -> Unit = {}, kontextDialogu: String = "", hotovo: (String) -> Unit) {
+        if (!pribeh && repliky.size > 1) zKnihovny(repliky.joinToString("\n"))?.let { hotovo(it); return }
+        val motor = nast.motorPribehu
+        // Volba překladu platí i během Standardního přenosu, než TV potvrdí podporu Story.
+        val prekladStory = motor.pouzitProDialog(pribeh, pozadujePribeh(), rychle)
+        val klic = if (prekladStory && motor == MotorPribehu.DEEPL) runCatching { prekladKlic.nacti() }.getOrNull().orEmpty() else ""
         val vysledky = arrayOfNulls<String>(repliky.size)
         var zbyva = repliky.size
         var selhalo = false
@@ -1325,6 +1339,11 @@ class RemotePlayService : Service() {
             }
         }
         repliky.forEachIndexed { i, replika ->
+            if (!pribeh || repliky.size > 1) zKnihovny(replika)?.let {
+                vysledky[i] = it
+                hotovaJedna()
+                return@forEachIndexed
+            }
             val shoda = Regex("^([A-Z][A-Za-z0-9 .'-]{1,24}):\\s*(.+)$").find(replika)
             val jmeno = shoda?.groupValues?.get(1)
             val veta = shoda?.groupValues?.get(2) ?: replika
@@ -1337,7 +1356,8 @@ class RemotePlayService : Service() {
                 hotovaJedna()
             }
             val chyba: (String) -> Unit = { selhalo = true; vysledky[i] = replika; hotovaJedna() }
-            if (pribeh) prekladac.prelozPribeh(veta, ok, chyba)
+            if (prekladStory) prekladac.prelozPribeh(veta, ok, chyba, kontextDialogu, motor, klic,
+                profilGta = GtaProfilPribehu.aktivni(pribeh, nast.gtaProfilPribehu, prekladac.cil), mluvci = jmeno)
             else if (rychle) prekladac.prelozRychle(veta, ok, chyba) else prekladac.preloz(veta, ok, chyba)
         }
     }
@@ -2047,7 +2067,7 @@ class RemotePlayService : Service() {
         drzWifi(true)
         posledniSnimekKdy = System.currentTimeMillis()
         ui.post { zahrejCtecku(predPripojenim = true) }
-        runCatching { prekladac.udrzujSpojeni() }
+        runCatching { zahratPrekladac() }
         var spojeno = false
         val r = XboxSpojeni.Relace(this, id, priStavu = { st ->
             ui.post {
@@ -2388,6 +2408,7 @@ class RemotePlayService : Service() {
     companion object {
         private val hlidaniPs5 = HlidaniPs5()
         @Volatile var pribehStav = "Příběh: čekám na Remote Play…"
+        @Volatile var pribehPrekladStav = ""
         const val ACTION_STOP = "cz.titulky.tv.REMOTE_STOP"
         private const val ACTION_NAPAJENI = "cz.titulky.tv.REMOTE_NAPAJENI"
         const val ACTION_PREPNOUT = "cz.titulky.tv.REMOTE_PREPNOUT"

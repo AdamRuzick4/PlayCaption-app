@@ -17,6 +17,18 @@ class Nastaveni(context: Context) {
         get() = prefs.getBoolean("pribehovy", false)
         set(v) = prefs.edit().putBoolean("pribehovy", v).apply()
 
+    internal var vlastniPreklady: Boolean
+        get() = prefs.getBoolean("vlastniPreklady", false)
+        set(v) = prefs.edit().putBoolean("vlastniPreklady", v).apply()
+
+    internal var gtaProfilPribehu: Boolean
+        get() = prefs.getBoolean("gtaProfilPribehu", false)
+        set(v) = prefs.edit().putBoolean("gtaProfilPribehu", v).apply()
+
+    internal var motorPribehu: MotorPribehu
+        get() = MotorPribehu.zId(prefs.getString("motorPribehu", "auto"))
+        set(v) = prefs.edit().putString("motorPribehu", v.id).apply()
+
     var casPribehuProcenta: Int
         get() = prefs.getInt("casPribehuProcenta", CasovaniPribehu.VYCHOZI_PROCENTA)
             .coerceIn(CasovaniPribehu.MIN_PROCENT, CasovaniPribehu.MAX_PROCENT)

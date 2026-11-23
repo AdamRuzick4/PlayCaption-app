@@ -54,29 +54,68 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
     private val sit = Executors.newSingleThreadExecutor()
     private val pribehSit = Executors.newSingleThreadExecutor()
     private val pribehObsazen = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val pametPribehu = PametPribehu()
+    private val deepL = DeepLPreklad()
+    private var pribehMotor = MotorPribehu.AUTO
+    private var pribehKlic = ""
+    private var pribehGenerace = 0L
+    var stavPribehu = ""
+        private set
+
+    fun zrusPribeh() { pribehGenerace++; pametPribehu.reset(); stavPribehu = "" }
 
     /** Story má jeden výsledek a vlastní omezenou online práci; Standardní cesta zůstává oddělená. */
-    fun prelozPribeh(text: String, hotovo: (String) -> Unit, chyba: (String) -> Unit) {
-        val vstup = upravSlang(text.trim())
-        val jazyk = cil
-        cache.get(vstup)?.let { hotovo(it); return }
+    internal fun prelozPribeh(text: String, hotovo: (String) -> Unit, chyba: (String) -> Unit,
+        kontext: String = "", motor: MotorPribehu = MotorPribehu.AUTO, klic: String = "",
+        profilGta: Boolean = false, mluvci: String? = null) {
+        if (motor != pribehMotor || klic != pribehKlic) {
+            pametPribehu.reset(); stavPribehu = ""; pribehMotor = motor; pribehKlic = klic
+        }
         if (zavreno) { chyba("Překladač je zavřený"); return }
+        if (profilGta) GtaProfilPribehu.preloz(text, mluvci, kontext)?.let {
+            stavPribehu = "Překlad: místní profil GTA"
+            hotovo(it)
+            return
+        }
+        val generace = pribehGenerace
+        val pametGenerace = pametPribehu.generace
+        val vstup = if (motor == MotorPribehu.DEEPL) text.trim() else upravSlang(text.trim())
+        val jazyk = cil
+        val identita = PametPribehu.Klic(motor, jazyk, vstup, if (motor == MotorPribehu.DEEPL) kontext else "")
+        stavPribehu = "Překladač: ${motor.nazev}"
+        val ulozeny = if (motor == MotorPribehu.AUTO) cache.get(vstup) else null
+        (ulozeny ?: pametPribehu.najdi(identita))?.let { hotovo(it); return }
+        fun plati() = !zavreno && cil == jazyk && generace == pribehGenerace
+        fun aktualniNastaveni() = pametGenerace == pametPribehu.generace
+        var duvodOnline: String? = null
         val strategie = PrekladPribehu({ t, callback ->
             if (!pribehObsazen.compareAndSet(false, true)) false
             else try {
                 pribehSit.execute {
-                    val vysledek = try { runCatching { google(t, jazyk) }.getOrNull() }
+                    val vysledek = try { runCatching {
+                        if (motor == MotorPribehu.DEEPL) deepL.preloz(t, kontext, jazyk, klic) else google(t, jazyk)
+                    }.getOrNull() }
                     finally { pribehObsazen.set(false) }
+                    val duvod = if (motor == MotorPribehu.DEEPL) deepL.chyba else null
                     ui.post {
-                        if (!vysledek.isNullOrBlank() && cil == jazyk && !zavreno) cache.put(t, vysledek)
+                        if (!plati()) return@post
+                        duvodOnline = duvod
+                        if (aktualniNastaveni() && !vysledek.isNullOrBlank()) {
+                            pametPribehu.uloz(identita, vysledek, pametGenerace)
+                            if (motor == MotorPribehu.AUTO) cache.put(t, vysledek)
+                        } else if (aktualniNastaveni() && duvod != null) stavPribehu = "$duvod · používám offline zálohu"
                         callback(vysledek)
                     }
                 }
                 true
             } catch (_: java.util.concurrent.RejectedExecutionException) { pribehObsazen.set(false); false }
-        }, { t, ok, err -> prelozVTelevizi(t, ok, { err() }) }, { ms, block -> ui.postDelayed({ block() }, ms) })
+        }, offline@{ t, ok, err ->
+            if (!plati()) { err(); return@offline }
+            if (aktualniNastaveni()) stavPribehu = (duvodOnline ?: "Překladač: ${motor.nazev}") + " · offline ML Kit"
+            prelozVTelevizi(t, ok, { err() })
+        }, { ms, block -> ui.postDelayed({ block() }, ms) }, onlinePovoleno = motor != MotorPribehu.OFFLINE)
         strategie.preloz(vstup, {
-            if (zavreno || cil != jazyk) chyba("Změna jazyka nebo relace") else hotovo(it)
+            if (!plati()) chyba("Změna překladače, jazyka nebo relace") else hotovo(it)
         }, { chyba("Překlad není dostupný v časovém rozpočtu") })
     }
 

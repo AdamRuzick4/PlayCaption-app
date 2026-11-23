@@ -1,5 +1,57 @@
 # Příběhový režim: čtecí fronta
 
+## Volba překladače a kontext – připravené, nevydané (18. 11. 2026)
+
+V telefonu pod procenty Story je volba **Překladač**:
+
+- **Automaticky** zachovává původní Google + místní zálohu. Standardní režim
+  zůstává beze změny.
+- **DeepL** používá vlastní API klíč uživatele, oficiální API Free/Pro podle klíče,
+  zdroj EN a aktuálně vybraný cílový jazyk. Při chybě či vyčerpání limitu přejde
+  na místní ML Kit; důvod je krátce viditelný ve stavu. Nezkouší následně jinou
+  cloudovou službu a neprodlužuje dosavadní časový rozpočet Story.
+- **Offline (ML Kit)** pro dialogy Story nevolá online překladač. Potřebuje předem
+  stažený jazykový model. Volba platí i pro dočasný Standardní přenos, dokud TV
+  nepotvrdí Story. Není to globální zákaz sítě: konzole, TV, stažení modelu a
+  samostatně zapnuté překlady menu/nápověd mají své dosavadní cesty.
+
+DeepL dostává pouze novou větu v `text` a krátkou historii v `context` podle
+[oficiálního API](https://developers.deepl.com/api-reference/translate/request-translation).
+Historie obsahuje nejvýše tři přijaté zdroje / 1600 znaků a po dvaceti sekundách
+bez navazujícího zdroje vyprší. Jsou to výchozí experimentální meze; spolehlivou
+automatickou detekci změny scény nemáme. Historie zachovává jména mluvčích,
+OCR revize nahradí stejný zdroj a nevytvoří další repliku. Každý požadavek dostane
+neměnný snímek kontextu před spuštěním asynchronního překladu. Kontext se neposílá
+do čtecí fronty ani znovu nezobrazuje. Konzervativní skládání vět zůstává.
+
+Paměť rozlišuje motor, cílový jazyk, nový text a u DeepL i kontext. Místní záloha
+se neukládá pod klíčem DeepL. Změna motoru nebo klíče platí pro nově přijaté
+repliky: rozpracovaná fronta doběhne s původní volbou a nezahodí se. Starý
+výsledek nezaplní paměť nové konfigurace. Změna jazyka nebo relace resetuje
+Story i kontext jako dosud; již rozečtený titulek se dodatečně nepřeklápí na
+pozdní alternativu. Online větev má dál jeden aktivní požadavek, místní záloha
+se spustí nejpozději po 2,5 s a původní celkový limit je 8 s.
+
+Klíč je šifrovaný AES-GCM klíčem Android Keystore, nezapisuje se do běžného
+nastavení, logů, URL ani paměťových klíčů překladu. Uložení neznamená ověření
+účtu; první skutečný požadavek může odhalit neplatný klíč nebo kvótu. Po smazání
+aktivního DeepL klíče se zvolí Offline. Zbytek účtu, PSN spárování a TV profilů
+se nemění. Zadání jiného klíče zruší dočasné omezení předchozí konfigurace.
+
+Automatické kontroly: `StoryKontextTest`, `DeepLPrekladTest`, `PrekladKlicTest`,
+`PribehovaRelaceTest` a `PrekladPribehuTest` pokrývají oddělení kontextu, revize,
+reset, pořadí, cache, protokol API Free/Pro, HTTP chyby/limity, neplatné odpovědi,
+šifrování a zachování jednoho výsledku v časovém rozpočtu. HTTP testy používají
+náhradu spojení; skutečný účet ani placená API volání nejsou potřeba. Připravený
+instrumentační `StoryPrekladOvladaniTest` kontroluje uložení volby z dialogu.
+
+Fyzická přejímka a kvalita češtiny zatím neověřené. Až budou zařízení a účet:
+porovnat stejné dialogy v Automaticky/DeepL/Offline, význam a jména, ztráty či
+zdvojení, prodlevu a kvótu. Vyzkoušet změnu motoru/jazyka za běhu, výpadek sítě,
+nesprávný klíč, restart aplikace, smazání klíče a všechny tři TV přijímače.
+Tato větev nemění jejich protokoly ani neobsahuje obnovu LG z PR #26. Gemini
+zůstává případným dalším krokem po vyhodnocení DeepL; není zde implementovaný.
+
 ## Story pro Android TV přijímač – nevydané, čeká na TCL
 
 Větev `codex/android-tv-story` navazuje na integraci #16/#17. Přidává plný
