@@ -98,6 +98,14 @@ class MainActivity : Activity() {
         if (zkouselPovoleni && !Rezim.jeTelefon(this) && !Settings.canDrawOverlays(this)) ukazNavodPovoleni()
     }
 
+    private val importPrekladu by lazy { ImportPrekladu(this, nast) }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(request: Int, result: Int, data: Intent?) {
+        super.onActivityResult(request, result, data)
+        if (request == ImportPrekladu.SOUBOR && result == RESULT_OK) data?.data?.let { importPrekladu.nacti(it) }
+    }
+
     override fun onPause() {
         ui.removeCallbacks(obnova)
         super.onPause()
@@ -530,6 +538,7 @@ class MainActivity : Activity() {
 
         // ---------- co překládat
         val co = karta()
+        if (telefon && jazyk == "cs") co.addView(tlacitkoSede("Vlastní knihovna překladů") { importPrekladu.ukaz() })
         co.addView(prepinac(t("dialogy"), { nast.dialogy }, { nast.dialogy = it }, t("ano"), t("ne"), t("dialogyPopis")))
         if (!telefon) {
             co.addView(cara())

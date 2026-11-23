@@ -16,7 +16,7 @@ internal class SkladaniVet(private val hotovo: (Veta) -> Unit) {
 
     val ceka get() = casti.isNotEmpty()
 
-    fun prijmi(replika: Replika, ted: Long, cekat: Boolean = true) {
+    fun prijmi(replika: Replika, ted: Long, cekat: Boolean = true, celyPreklad: Boolean = false) {
         require(replika.id >= 0 && replika.revize >= 0)
         krok(ted)
         if (replika.id < posledniId || (replika.id == posledniId && replika.revize <= revize)) return
@@ -27,6 +27,12 @@ internal class SkladaniVet(private val hotovo: (Veta) -> Unit) {
         val puvodniTermin = if (oprava && casti.any { it.zdroj.id == replika.id }) doKdy else null
         if (oprava && puvodniTermin == null) return
         if (oprava) casti.removeAll { it.zdroj.id == replika.id }
+        if (celyPreklad) {
+            uvolni()
+            casti += Cast(replika, 0, replika.text.length, replika.text, null, replika.barvy.firstOrNull() ?: replika.barva)
+            uvolni()
+            return
+        }
         if (!cekat) uvolni()
         for (cast in rozdel(replika)) {
             if (casti.isNotEmpty() && !navazuje(cast)) uvolni()

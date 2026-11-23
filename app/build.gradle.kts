@@ -36,6 +36,7 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test:runner:1.5.2")
     testImplementation("org.json:json:20240303")
@@ -51,6 +52,11 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     // Xbox: příjem obrazu z konzole (WebRTC, Google libwebrtc v balíčku od Stream – Apache 2.0)
     implementation("io.getstream:stream-webrtc-android:1.3.7")
+}
+
+// Lokální přejímka musí proběhnout znovu i při změně externího pilotního souboru.
+tasks.withType<Test>().configureEach {
+    providers.environmentVariable("PLAYCAPTION_PILOT_JSON").orNull?.let { inputs.file(it).withPathSensitivity(PathSensitivity.NONE) }
 }
 
 // Dva malé assets vzniknou ze stejných zdrojů jako samostatný LG Release.

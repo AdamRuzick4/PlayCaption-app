@@ -6,6 +6,8 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
+- Na telefonu a tabletu lze načíst vlastní JSON s poli `original` a `czech` přes Co překládat → Vlastní knihovna překladů. Nalezená replika má v českých dialozích přednost i před profilem GTA.
+
 - V českém Příběhovém režimu lze zapnout místní profil GTA pro slang, význam podle předchozích replik a rod u označeného mluvčího. Ostatní věty překládá zvolený překladač.
 
 - Story: volitelný DeepL s vlastním šifrovaně uloženým API klíčem a samostatným

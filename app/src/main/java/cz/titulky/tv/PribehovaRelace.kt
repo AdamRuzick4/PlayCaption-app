@@ -3,7 +3,8 @@ package cz.titulky.tv
 /** Napojení finálních překladů na jedinou čtecí frontu. Volat na jednom vlákně. */
 internal class PribehovaRelace(
     private val preloz: (List<String>, String, (String) -> Unit, () -> Unit) -> Unit,
-    private val hlaseni: (String) -> Unit
+    private val hlaseni: (String) -> Unit,
+    private val zKnihovny: (String) -> String? = { null }
 ) {
     private val fronta = CteciFronta()
     private val historie = KontextPrekladu()
@@ -39,7 +40,7 @@ internal class PribehovaRelace(
         // Jednoduchý dosud nečtený titulek lze opravit původní revizní cestou; složené části znovu nevydávat.
         if (oprava && posledniSamostatnyZdroj == zdrojId) prijmi(text, jmena, true, ted)
         skladani.prijmi(SkladaniVet.Replika(zdrojId, zdrojRevize, ocrText,
-            barvy = jmena.copyOf()), ted, cekaniPovoleno)
+            barvy = jmena.copyOf()), ted, cekaniPovoleno, celyPreklad = zKnihovny(ocrText) != null)
         cekaNaVetu = skladani.ceka
     }
 
@@ -63,10 +64,12 @@ internal class PribehovaRelace(
         posledni = token
         barvy[token] = jmena.copyOf()
         val kontext = historie.prijmi(token.poradi, text.joinToString("\n"), ted)
-        preloz(text.toList(), kontext, { cesky ->
+        val hotovo: (String) -> Unit = { cesky ->
             if (cesky.isBlank()) chyba(token)
             else if (fronta.priprav(token, listOf(cesky)) == CteciFronta.Prijeti.LIMIT_TEXTU) chyba(token)
-        }, { chyba(token) })
+        }
+        val cesky = zKnihovny(text.joinToString("\n"))
+        if (cesky != null) hotovo(cesky) else preloz(text.toList(), kontext, hotovo) { chyba(token) }
     }
     private fun chyba(token: CteciFronta.Token) {
         if (fronta.chyba(token)) { barvy.remove(token); hlaseni("Jednu repliku se nepodařilo přeložit.") }

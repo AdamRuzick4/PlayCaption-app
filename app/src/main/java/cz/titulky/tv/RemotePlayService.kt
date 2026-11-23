@@ -87,9 +87,12 @@ class RemotePlayService : Service() {
     private var pribehChyba = ""
     private var pribehPristiPokus = 0L
     private val prekladKlic by lazy { PrekladKlic(this) }
+    private fun zKnihovny(text: String): String? =
+        if (telefon && nast.vlastniPreklady && nast.jazykNeboCs == "cs") VlastniKnihovna.pro(this).najdi(text) else null
+
     private val pribeh = PribehovaRelace({ text, kontext, ok, chyba ->
         prelozVse(text, false, pribeh = true, chybaPribehu = chyba, kontextDialogu = kontext, hotovo = ok)
-    }, { pribehChyba = it; zapis("[příběh: $it]") })
+    }, { pribehChyba = it; zapis("[příběh: $it]") }, ::zKnihovny)
 
     private val tvProfily by lazy { TvProfily(this) }
     private fun platformaCile() = TvProfily.aktivniId?.let { tvProfily.platformaPrijimace(it) } ?: TvPlatforma.NEZNAMA
@@ -1268,7 +1271,7 @@ class RemotePlayService : Service() {
         // tím nebylo – jinak by se spojilo s něčím, co k tomu nepatří ("I loved Davey…" + "they may be okay")
         val casOk = if (oprava) posledniSpojeno else ted - predchoziKdy < 15000 && ted - predchoziVidenKdy < 2500
         var spojeno = false
-        if (nova != null && pred != null && casOk && novaPokracuje &&
+        if (nova != null && pred != null && casOk && novaPokracuje && zKnihovny(nova) == null &&
             (predTecky || predKonec.lastOrNull() !in listOf('.', '!', '?', '"', '…'))
         ) {
             val zacatek = predKonec.trimEnd('.', '…', ' ')
@@ -1319,6 +1322,7 @@ class RemotePlayService : Service() {
     /** Přeloží všechny repliky (jméno postavy nechá) a výsledek spojí pod sebe. */
     private fun prelozVse(repliky: List<String>, rychle: Boolean, pribeh: Boolean = false,
         chybaPribehu: () -> Unit = {}, kontextDialogu: String = "", hotovo: (String) -> Unit) {
+        if (!pribeh && repliky.size > 1) zKnihovny(repliky.joinToString("\n"))?.let { hotovo(it); return }
         val motor = nast.motorPribehu
         // Volba překladu platí i během Standardního přenosu, než TV potvrdí podporu Story.
         val prekladStory = motor.pouzitProDialog(pribeh, pozadujePribeh(), rychle)
@@ -1335,6 +1339,11 @@ class RemotePlayService : Service() {
             }
         }
         repliky.forEachIndexed { i, replika ->
+            if (!pribeh || repliky.size > 1) zKnihovny(replika)?.let {
+                vysledky[i] = it
+                hotovaJedna()
+                return@forEachIndexed
+            }
             val shoda = Regex("^([A-Z][A-Za-z0-9 .'-]{1,24}):\\s*(.+)$").find(replika)
             val jmeno = shoda?.groupValues?.get(1)
             val veta = shoda?.groupValues?.get(2) ?: replika
