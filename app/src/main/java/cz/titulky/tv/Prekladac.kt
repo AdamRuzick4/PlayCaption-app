@@ -66,9 +66,16 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
 
     /** Story má jeden výsledek a vlastní omezenou online práci; Standardní cesta zůstává oddělená. */
     internal fun prelozPribeh(text: String, hotovo: (String) -> Unit, chyba: (String) -> Unit,
-        kontext: String = "", motor: MotorPribehu = MotorPribehu.AUTO, klic: String = "") {
+        kontext: String = "", motor: MotorPribehu = MotorPribehu.AUTO, klic: String = "",
+        profilGta: Boolean = false, mluvci: String? = null) {
         if (motor != pribehMotor || klic != pribehKlic) {
             pametPribehu.reset(); stavPribehu = ""; pribehMotor = motor; pribehKlic = klic
+        }
+        if (zavreno) { chyba("Překladač je zavřený"); return }
+        if (profilGta) GtaProfilPribehu.preloz(text, mluvci, kontext)?.let {
+            stavPribehu = "Překlad: místní profil GTA"
+            hotovo(it)
+            return
         }
         val generace = pribehGenerace
         val pametGenerace = pametPribehu.generace
@@ -76,7 +83,6 @@ class Prekladac(context: android.content.Context? = null, cilovy: String = "cs")
         val jazyk = cil
         val identita = PametPribehu.Klic(motor, jazyk, vstup, if (motor == MotorPribehu.DEEPL) kontext else "")
         stavPribehu = "Překladač: ${motor.nazev}"
-        if (zavreno) { chyba("Překladač je zavřený"); return }
         val ulozeny = if (motor == MotorPribehu.AUTO) cache.get(vstup) else null
         (ulozeny ?: pametPribehu.najdi(identita))?.let { hotovo(it); return }
         fun plati() = !zavreno && cil == jazyk && generace == pribehGenerace

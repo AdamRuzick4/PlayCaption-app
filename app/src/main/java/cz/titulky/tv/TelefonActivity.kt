@@ -883,6 +883,12 @@ class TelefonActivity : Activity() {
                 text = "Volba platí od nové repliky. DeepL: vlastní API klíč. Offline: stažený model."
                 textSize = 12f; setTextColor(Color.parseColor("#B6B6C2"))
             })
+            if (nast.jazykNeboCs == "cs") casObal.addView(android.widget.CheckBox(this@TelefonActivity).apply {
+                text = "GTA · slang a kontext dialogů"
+                setTextColor(Color.WHITE)
+                isChecked = nast.gtaProfilPribehu
+                setOnCheckedChangeListener { _, zapnuto -> nast.gtaProfilPribehu = zapnuto }
+            })
             rezimy.addView(tlacitka)
             rezimy.addView(casObal)
             obnovRezim()

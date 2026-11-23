@@ -116,7 +116,7 @@ class RemotePlayService : Service() {
         }
     }
     private fun kontextPribehu() {
-        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${rucniOblast()?.joinToString()}:${Propojeni.Vysilac.cilIp}:${TvProfily.aktivniId}:${platformaCile()}"
+        val klic = "${pozadujePribeh()}:${bezi}:${relaceCteni.get()}:${nast.jazykNeboCs}:${nast.gtaProfilPribehu}:${rucniOblast()?.joinToString()}:${Propojeni.Vysilac.cilIp}:${TvProfily.aktivniId}:${platformaCile()}"
         val zmena = klic != pribehKontext
         if (zmena) {
             zrusPribeh(vycistitTelefon = false)
@@ -1347,7 +1347,8 @@ class RemotePlayService : Service() {
                 hotovaJedna()
             }
             val chyba: (String) -> Unit = { selhalo = true; vysledky[i] = replika; hotovaJedna() }
-            if (prekladStory) prekladac.prelozPribeh(veta, ok, chyba, kontextDialogu, motor, klic)
+            if (prekladStory) prekladac.prelozPribeh(veta, ok, chyba, kontextDialogu, motor, klic,
+                profilGta = GtaProfilPribehu.aktivni(pribeh, nast.gtaProfilPribehu, prekladac.cil), mluvci = jmeno)
             else if (rychle) prekladac.prelozRychle(veta, ok, chyba) else prekladac.preloz(veta, ok, chyba)
         }
     }

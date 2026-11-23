@@ -6,6 +6,8 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
+- V českém Příběhovém režimu lze zapnout místní profil GTA pro slang, význam podle předchozích replik a rod u označeného mluvčího. Ostatní věty překládá zvolený překladač.
+
 - Story: volitelný DeepL s vlastním šifrovaně uloženým API klíčem a samostatným
   kontextem předchozích stabilních replik. Překládá a zobrazuje se pouze nový text;
   paměť rozlišuje překladač, jazyk a kontext. Nově lze zvolit také místní ML Kit.
