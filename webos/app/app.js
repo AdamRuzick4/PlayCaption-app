@@ -40,12 +40,13 @@
 
     function updateInfo(now) {
         if (!controls || controls.hidden) return;
-        var state = activityWarning || protocolWarning || (!receiverReady || !receiverNetworkReady || receiverFailure ? statusText : lastDataAt ?
-            (now - lastDataAt <= 5000 ? "Zařízení posílá platná data." : "Komunikace byla přerušena.") : "Přijímač je připraven, čeká na zařízení.");
+        var state = !receiverReady || !receiverNetworkReady || receiverFailure ? statusText : lastDataAt ?
+            (now - lastDataAt <= 5000 ? "Zařízení posílá platná data." : "Komunikace byla přerušena.") : "Přijímač je připraven, čeká na zařízení.";
         var saved = "nezvolen";
         try { saved = localStorage.getItem("playcaption-input") || saved; } catch (error) {}
         var port = /hdmi([1-9][0-9]*)$/.exec(saved);
         document.getElementById("connection-info").textContent = receiverLabel + " · verze " + receiverVersion + "\n" + state +
+            (protocolWarning ? "\n" + protocolWarning : "") + (activityWarning ? "\n" + activityWarning : "") +
             "\nPoslední data: " + (lastDataAt ? Math.max(0, Math.floor((now - lastDataAt) / 1000)) + " s" : "žádná") +
             " · poslední titulek: " + (lastCaptionAt ? Math.max(0, Math.floor((now - lastCaptionAt) / 1000)) + " s" : "žádný") +
             "\nNaposledy vybraný vstup: " + (port ? "HDMI " + port[1] : "nezvolen") +
@@ -172,10 +173,14 @@
         request.call("luna://com.webos.service.eim/getAllInputStatus", "{}");
     }
 
+    function refreshStatus(forceVisible) {
+        status.hidden = !forceVisible && !receiverFailure && !protocolWarning && !activityWarning && Boolean(lastSeen);
+        if (!status.hidden) status.textContent = receiverFailure ? statusText : protocolWarning || activityWarning || statusText;
+    }
+
     function showStatus(text) {
         statusText = text;
-        status.textContent = activityWarning || protocolWarning || text;
-        status.hidden = false;
+        refreshStatus(true);
     }
 
     function clearText(preserveStory) {
@@ -234,8 +239,7 @@
             try { result = JSON.parse(raw); } catch (error) { result = {}; }
             activityWarning = result && result.returnValue === true ? "" :
                 "PlayCaption · LG odmítá prodloužení překryvu, může se po 2 minutách zavřít.";
-            status.textContent = activityWarning || protocolWarning || statusText;
-            status.hidden = !activityWarning && !protocolWarning && Boolean(lastSeen);
+            refreshStatus();
             activityBridge = null;
         };
         // LG zavírá nečinný overlay po 120 s, i když se jeho text průběžně mění.
@@ -293,7 +297,7 @@
         if (receiverUI && receiverUI.handle(packet, now)) {
             lastSeen = now;
             source = result.source;
-            status.hidden = !activityWarning && !protocolWarning;
+            refreshStatus();
             return;
         }
         if (packet.kind !== "story" && receiverUI && receiverUI.storyActive()) return;
@@ -301,7 +305,7 @@
         // Opakované pakety jsou heartbeat; nesmějí znovu zobrazit již prošlý titulek.
         var changed = packet.id !== lastId || connectionChanged;
         lastSeen = now;
-        status.hidden = !activityWarning && !protocolWarning;
+        refreshStatus();
         if (!changed && packet.kind !== "story") return;
         lastId = packet.id;
         if (packet.text) lastCaptionAt = now;

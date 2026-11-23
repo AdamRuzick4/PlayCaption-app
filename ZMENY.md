@@ -6,7 +6,7 @@ Při každé nové verzi se zvýší číslo v `app/build.gradle.kts` (versionCo
 
 ## Nevydané změny
 
-(zatím nic)
+- LG v nabídce zobrazuje stav příjmu i při odmítnutí prodloužení překryvu. Případná chyba přijímače zůstane čitelná také nad obrazem.
 
 ## 0.22 (versionCode 35)
 

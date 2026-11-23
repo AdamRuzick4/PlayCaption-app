@@ -12,7 +12,7 @@ Je to experimentální podpora, zatím ověřená na LG C5.
 - V novější Android aplikaci je instalátor LG přímo v průvodci. První záloha je externí Android správce; počítač je další možnost.
 - Konzoli zapojenou přes HDMI do LG a zařízení ve stejné domácí síti.
   LG může být připojená kabelem a odesílající zařízení přes Wi-Fi; nepoužívej oddělenou síť pro hosty.
-- Pro ruční instalaci navíc potřebuješ soubor **cz.playcaption.overlaytest_0.1.0_all.ipk** z vydání na GitHubu. Pro přímou instalaci jej už obsahuje Android aplikace.
+- Pro ruční instalaci navíc potřebuješ soubor **cz.playcaption.overlaytest_…_all.ipk** z balíčku daného vydání. Pro přímou instalaci jej už obsahuje Android aplikace.
 
 APK patří do Android zařízení, IPK patří do LG. Na LG se nepřihlašuješ k PSN.
 Hra běží přes HDMI; Remote Play dodává kopii obrazu Android zařízení pro čtení titulků.
@@ -84,7 +84,7 @@ krok a neznamená, že už je přijímač v TV nainstalovaný.
    zadej IP televize a Passphrase. Pokud nástroj vyžádá port a uživatele, použij port
    **9922** a uživatele **prisoner**. Nevol připojení jako root.
 3. Po připojení v části s aplikacemi použij **Install** a vyber rozbalený soubor
-   **cz.playcaption.overlaytest_0.1.0_all.ipk**.
+   **cz.playcaption.overlaytest_…_all.ipk** z téhož balíčku.
 4. Počkej na dokončení. V seznamu aplikací má přibýt **PlayCaption LG**.
    Pokud už máš náš původní HDMI test, stejný identifikátor zajistí jeho aktualizaci.
 
@@ -202,8 +202,8 @@ instaluj přes Install novějšího IPK a přijímač znovu spusť.
 | Android chce přebírat přihlášení z TV | Jsi v jiném průvodci. Dej Zrušit → Hotovo – hrát → přepínač 📺 Televize vpravo nahoře. |
 | Překlad chybí na zařízení i LG | Nejprve řeš čtení/překlad na Android zařízení; LG dostává až jeho hotový výsledek. |
 | Na zařízení překlad je, na LG není | Ověř vybranou LG a spuštěný přijímač. Po výpadku delším než 5 s se na LG schová starý text. |
-| LG hlásí odmítnutí prodloužení překryvu | Firmware nepovolil potřebné volání. Zapiš model a verzi webOS/firmwaru; tento model zatím nelze označit za kompatibilní. |
-| Překryv zmizí přibližně po 2 minutách | Ověř přijímač 0.0.3 nebo novější, znovu ho spusť. Opakování nahlas s modelem/firmwarem; může jít o nekompatibilní systémové volání. |
+| Po přepnutí na HDMI zmizí přijímač i jeho nabídka | Nejdřív na TV vyber HDMI a počkej, až uvidíš hru. Nad tímto vstupem otevři PlayCaption LG rychlou volbou na ovladači a vyber **Pokračovat nad aktuálním obrazem**. Na telefonu vyber svou LG a ověř první skutečnou repliku. Tento postup pomohl na 65QNED913PA ([hlášení](https://github.com/AdamRuzick4/PlayCaption-app/issues/30)). Na OLED55B23LA čeká na ověření. |
+| LG odmítá prodloužení překryvu nebo překryv asi po dvou minutách zmizí | V nabídce **OK / Zpět** zkontroluj verzi přijímače. Pokud používáš 0.1.0, zopakuj test s přijímačem z aktuálně testovaného nebo vydaného balíčku. Vrať se ke hře a sleduj, zda dorazí překlad z telefonu ihned a zda je další replika vidět i po třech minutách bez použití ovladače LG. Poznamenej čas zmizení, model, firmware a údaje **Poslední data / poslední titulek**. |
 | Víceřádkový text skončí pouze posledním řádkem | Známý problém čekající na samostatné řešení. Porovnej text na Android zařízení a LG; neřeš ho opakovanou instalací přijímače. |
 
 Pro nahlášení problému stačí model LG, verze firmwaru/webOS, verze obou aplikací,
