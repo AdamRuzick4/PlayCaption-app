@@ -39,9 +39,15 @@ s.activity();
 s.respond(0, { returnValue: true, devices: [{ appId: 'com.webos.app.hdmi4' }] });
 assert.equal(s.calls[1].payload.id, 'com.webos.app.hdmi4');
 s.respond(1, { returnValue: true });
+assert.equal(s.calls.length, 2, 'Overlay čeká na ustálení HDMI.');
+{ const [id, fn] = [...s.timers.entries()].at(-1); s.timers.delete(id); fn(); }
 assert.equal(s.calls[2].payload.id, 'cz.playcaption.overlaytest');
 assert.equal(s.calls[2].payload.params.resumeOverlay, true);
 s.respond(2, { returnValue: true });
+{ const [id, fn] = [...s.timers.entries()].at(-1); s.timers.delete(id); fn(); }
+assert.equal(s.calls[3].payload.id, 'cz.playcaption.overlaytest');
+assert.equal(s.calls[3].payload.params.resumeOverlay, true);
+s.respond(3, { returnValue: true });
 assert.equal(s.replies.at(-1).returnValue, true);
 assert.equal(s.completed, 1);
 assert.equal(s.timers.size, 0);
