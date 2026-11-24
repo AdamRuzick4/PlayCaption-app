@@ -13,6 +13,8 @@ exports.register = function (service) {
         var activity = null;
         var finished = false;
         var timer = setTimeout(function () { finish(false, "LG včas nepotvrdila přepnutí vstupu."); }, 12000);
+        var relaunchTimer1 = null;
+        var relaunchTimer2 = null;
         function complete(value) {
             if (value) {
                 try { service.activityManager.complete(value, function () {}); }
@@ -23,6 +25,8 @@ exports.register = function (service) {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
+            if (relaunchTimer1) { clearTimeout(relaunchTimer1); relaunchTimer1 = null; }
+            if (relaunchTimer2) { clearTimeout(relaunchTimer2); relaunchTimer2 = null; }
             busy = false;
             complete(activity);
             message.respond({ returnValue: ok, errorText: error || "" });
@@ -48,9 +52,24 @@ exports.register = function (service) {
                         return;
                     }
                     call("luna://com.webos.applicationManager/launch", { id: id }, function () {
-                        call("luna://com.webos.applicationManager/launch", {
-                            id: "cz.playcaption.overlaytest", params: { resumeOverlay: true }
-                        }, function () { finish(true); });
+                        // Po přepnutí na HDMI (zvlášť PS5 s HDR/VRR/Game Optimizer) webOS
+                        // shazuje overlay spuštěný moc brzy → počkat na ustálení HDMI a pro jistotu
+                        // overlay po 3 s znovu oživit před uvolněním aktivity.
+                        relaunchTimer1 = setTimeout(function () {
+                            relaunchTimer1 = null;
+                            if (finished) return;
+                            call("luna://com.webos.applicationManager/launch", {
+                                id: "cz.playcaption.overlaytest", params: { resumeOverlay: true }
+                            }, function () {
+                                relaunchTimer2 = setTimeout(function () {
+                                    relaunchTimer2 = null;
+                                    if (finished) return;
+                                    call("luna://com.webos.applicationManager/launch", {
+                                        id: "cz.playcaption.overlaytest", params: { resumeOverlay: true }
+                                    }, function () { finish(true); });
+                                }, 3000);
+                            });
+                        }, 2200);
                     });
                 });
             });
